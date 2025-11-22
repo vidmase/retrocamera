@@ -4,11 +4,10 @@ import { RetroSwitch } from './components/RetroSwitch';
 import Polaroid from './components/Polaroid';
 import { generateCaption } from './services/geminiService';
 
-// Simple shutter sound hook
-const useShutterSound = () => {
+const usePrintingSound = () => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   useEffect(() => {
-    audioRef.current = new Audio("https://assets.mixkit.co/active_storage/sfx/2578/2578-preview.mp3");
+    audioRef.current = new Audio("https://www.bubbbly.com/assets/retro-camera/polaroid-camera.mp3");
   }, []);
   const play = useCallback(() => {
     if (audioRef.current) {
@@ -39,8 +38,9 @@ function App() {
 
   const [isAiEnabled, setIsAiEnabled] = useState(true);
   const [maxZIndex, setMaxZIndex] = useState(30);
+  const [customText, setCustomText] = useState("May I meet you");
 
-  const playShutter = useShutterSound();
+  const playPrinting = usePrintingSound();
 
   // Initialize Camera
   useEffect(() => {
@@ -113,7 +113,7 @@ function App() {
     const video = videoRef.current;
     if (video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) return;
 
-    playShutter();
+    playPrinting();
     setState(prev => ({ ...prev, isCapturing: true }));
 
     const canvas = canvasRef.current;
@@ -161,6 +161,7 @@ function App() {
         isDeveloping: false, // Don't animate yet
         isStaticNegative: true, // Keep as negative
         isEjecting: true,
+        customText: customText,
         x: spawnX,
         y: spawnY,
         rotation: 0, // CSS animation handles rotation during fall
@@ -334,6 +335,23 @@ function App() {
             <div className="bg-black/30 backdrop-blur-md p-2 rounded-xl border border-white/10 flex gap-3 lg:gap-4 shadow-xl max-w-full overflow-x-auto hide-scrollbar">
               <RetroSwitch isOn={state.isFlashOn} onToggle={() => setState(prev => ({ ...prev, isFlashOn: !prev.isFlashOn }))} label="Flash" />
               <RetroSwitch isOn={isAiEnabled} onToggle={() => setIsAiEnabled(!isAiEnabled)} label="AI" />
+              <div className="flex items-center border-l border-white/10 pl-3 ml-1">
+                <input
+                  type="text"
+                  value={customText}
+                  onChange={(e) => setCustomText(e.target.value)}
+                  placeholder="Enter text..."
+                  className="bg-transparent border-b border-white/30 text-white font-mono text-sm px-2 py-1 outline-none focus:border-accent w-32 placeholder:text-white/30"
+                  maxLength={20}
+                />
+              </div>
+              <button
+                onClick={() => setPhotos([])}
+                className="ml-2 px-3 py-1 text-white/80 hover:text-accent transition-colors font-fredericka text-lg tracking-widest"
+                title="Reset Photos"
+              >
+                Reset
+              </button>
             </div>
           </div>
 

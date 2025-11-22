@@ -124,7 +124,7 @@ const Polaroid: React.FC<PolaroidProps> = ({ photo, onFocus, onDragEnd, classNam
           <p className="font-hand text-2xl text-gray-800 leading-none">
             {photo.caption || ""}
           </p>
-          <p className="font-mono text-[10px] text-gray-400 mt-1 uppercase tracking-widest">{dateStr}</p>
+          <p className="font-mono text-[10px] text-gray-400 mt-1 uppercase tracking-widest">{photo.customText || dateStr}</p>
         </div>
       </div>
     </div>

@@ -7,6 +7,7 @@ export interface Photo {
   isDeveloping: boolean;
   isStaticNegative?: boolean;
   isEjecting?: boolean;
+  customText?: string;
   x: number;
   y: number;
   rotation: number;
