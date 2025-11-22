@@ -31,6 +31,7 @@
             'emerge': 'emerge 5s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards',
             'eject': 'eject 3s ease-out forwards',
             'develop-negative': 'developNegative 5s ease-out forwards',
+            'flash-burst': 'flashBurst 0.4s ease-out forwards',
           },
           keyframes: {
             develop: {
@@ -49,6 +50,11 @@
               '0%': { filter: 'invert(1) grayscale(1) contrast(1.2)' },
               '20%': { filter: 'invert(1) grayscale(1) contrast(1.2)' },
               '100%': { filter: 'invert(0) grayscale(0) contrast(1)' },
+            },
+            flashBurst: {
+              '0%': { transform: 'translate(-50%, -50%) scale(0)', opacity: '1' },
+              '10%': { transform: 'translate(-50%, -50%) scale(50)', opacity: '1' },
+              '100%': { transform: 'translate(-50%, -50%) scale(100)', opacity: '0' },
             }
           }
         },

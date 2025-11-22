@@ -4,6 +4,22 @@ import { RetroSwitch } from './components/RetroSwitch';
 import Polaroid from './components/Polaroid';
 import { generateCaption } from './services/geminiService';
 
+const useReloadSound = () => {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  useEffect(() => {
+    // Mechanical camera wind/reload sound
+    audioRef.current = new Audio("https://assets.mixkit.co/active_storage/sfx/2579/2579-preview.mp3");
+  }, []);
+  const play = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.currentTime = 0;
+      audioRef.current.volume = 0.6;
+      audioRef.current.play().catch(() => { });
+    }
+  }, []);
+  return play;
+};
+
 const usePrintingSound = () => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   useEffect(() => {
@@ -33,6 +49,10 @@ function App() {
   });
   const [photos, setPhotos] = useState<Photo[]>([]);
 
+  // Film Roll Logic
+  const [shotsLeft, setShotsLeft] = useState(8);
+  const [isReloading, setIsReloading] = useState(false);
+
   // A pending photo sits on the camera until dragged away
   const [pendingPhoto, setPendingPhoto] = useState<Photo | null>(null);
 
@@ -40,8 +60,10 @@ function App() {
   const [maxZIndex, setMaxZIndex] = useState(30);
   const [customText, setCustomText] = useState("May I meet you");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [showPageFlash, setShowPageFlash] = useState(false);
 
   const playPrinting = usePrintingSound();
+  const playReload = useReloadSound();
 
   // Initialize Camera
   useEffect(() => {
@@ -108,6 +130,7 @@ function App() {
 
   const takePhoto = async () => {
     if (pendingPhoto) return; // Block if slot occupied
+    if (shotsLeft <= 0 || isReloading) return; // Block if empty or reloading
 
     if (!videoRef.current || !canvasRef.current || state.isCapturing) return;
 
@@ -116,6 +139,9 @@ function App() {
 
     playPrinting();
     setState(prev => ({ ...prev, isCapturing: true }));
+    setShotsLeft(prev => prev - 1); // Decrement shots
+    setShowPageFlash(true);
+    setTimeout(() => setShowPageFlash(false), 400);
 
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
@@ -220,8 +246,33 @@ function App() {
     setPendingPhoto(null);
   };
 
+  const handleReload = () => {
+    if (isReloading) return;
+    setIsReloading(true);
+    playReload();
+
+    setTimeout(() => {
+      setShotsLeft(8);
+      setIsReloading(false);
+    }, 2000); // Simulate reload time
+  };
+
   return (
     <div className="relative h-screen w-full bg-stone-900 overflow-hidden font-sans selection:bg-accent selection:text-white touch-none">
+      {/* Flash Burst Effect - Emanates from camera flash */}
+      {showPageFlash && (
+        <div
+          className="fixed z-[100] pointer-events-none"
+          style={{
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)'
+          }}
+        >
+          <div className="absolute top-1/2 left-1/2 w-4 h-4 bg-white rounded-full animate-flash-burst shadow-[0_0_100px_50px_rgba(255,255,255,0.8)]" />
+        </div>
+      )}
+
       <canvas ref={canvasRef} className="hidden" />
 
       {/* LAYER 1: Backgrounds (Bottom) */}
@@ -233,7 +284,7 @@ function App() {
         <div className="absolute inset-0 bg-black/30" />
       </div>
 
-      {/* LAYER 2: Pending Photo (Behind Camera) 
+      {/* LAYER 2: Pending Photo (Behind Camera)
           - z-index 10
           - Contains only the ejecting/pending photo
       */}
@@ -241,7 +292,7 @@ function App() {
         {pendingPhoto && <div
           className={`absolute ${pendingPhoto.isEjecting ? 'overflow-hidden' : ''} pointer-events-auto`}
           style={{
-            // Wrapper positioned at the slot. 
+            // Wrapper positioned at the slot.
             // We add padding to the wrapper to avoid clipping the shadow.
             // pendingPhoto.x/y are the desired top-left of the PHOTO.
             // So wrapper starts at x-20, y.
@@ -268,13 +319,13 @@ function App() {
         }
       </div>
 
-      {/* LAYER 3: Foreground UI & Camera (Middle) 
+      {/* LAYER 3: Foreground UI & Camera (Middle)
           - z-index 20
           - Covers the pending photo layer
       */}
       <div className="absolute inset-0 flex flex-col lg:flex-row w-full h-full pointer-events-none z-20">
 
-        {/* Left/Top Column: Camera Zone 
+        {/* Left/Top Column: Camera Zone
               - Moves camera up (justify-start + pt-12) on mobile to allow space for falling photo
               - Moves camera up (pb-32) on desktop
           */}
@@ -316,16 +367,48 @@ function App() {
             {/* Shutter Button - Mapped to left 18% as requested */}
             <button
               onClick={takePhoto}
-              disabled={!state.permissionGranted || state.isCapturing || !!pendingPhoto}
-              className={`absolute w-[15%] aspect-square rounded-full focus:outline-none group transition-all z-50 ${!!pendingPhoto ? 'cursor-not-allowed' : 'cursor-pointer active:scale-95'}`}
+              disabled={!state.permissionGranted || state.isCapturing || !!pendingPhoto || shotsLeft <= 0 || isReloading}
+              className={`absolute w-[15%] aspect-square rounded-full focus:outline-none group transition-all z-50 ${!!pendingPhoto || shotsLeft <= 0 || isReloading ? 'cursor-not-allowed' : 'cursor-pointer active:scale-95'}`}
               style={{
                 top: '48%',
                 left: '18%'
               }}
               aria-label="Take Photo"
             >
-              <div className={`w-full h-full rounded-full transition-colors duration-200 ${!!pendingPhoto ? '' : 'hover:bg-white/10 active:bg-white/20'}`} />
+              <div className={`w-full h-full rounded-full transition-colors duration-200 ${!!pendingPhoto || shotsLeft <= 0 || isReloading ? '' : 'hover:bg-white/10 active:bg-white/20'}`} />
             </button>
+
+            {/* Film Counter */}
+            <div
+              className="absolute flex flex-col items-center justify-center pointer-events-none"
+              style={{ top: '12%', left: '50%', transform: 'translateX(-50%)' }}
+            >
+              <div className="bg-[#1a1a1a] border-2 border-[#333] rounded px-2 py-1 shadow-[inset_0_2px_5px_rgba(0,0,0,0.8)]">
+                <span className={`font-mono font-bold text-lg tracking-widest ${shotsLeft === 0 ? 'text-red-500 animate-pulse' : 'text-[#a3d9a5]'}`}>
+                  {shotsLeft}
+                </span>
+              </div>
+              <span className="text-[8px] text-white/40 font-sans mt-1 tracking-wider">SHOTS</span>
+            </div>
+
+            {/* Reload Indicator / Button */}
+            {/* Reload Indicator / Button */}
+            {shotsLeft === 0 && !isReloading && (
+              <button
+                onClick={handleReload}
+                className="absolute z-50 bg-red-600 hover:bg-red-500 text-white font-fredericka text-sm px-3 py-1 rounded shadow-lg animate-bounce cursor-pointer pointer-events-auto tracking-widest"
+                style={{ top: '25%', left: '50%', transform: 'translateX(-50%)' }}
+              >
+                RELOAD
+              </button>
+            )}
+
+            {/* Reloading Animation Overlay */}
+            {isReloading && (
+              <div className="absolute inset-0 flex items-center justify-center z-50 bg-black/20 backdrop-blur-[1px] rounded-[3rem]">
+                <div className="text-white font-mono text-sm animate-pulse">RELOADING...</div>
+              </div>
+            )}
           </div>
         </div>
 
