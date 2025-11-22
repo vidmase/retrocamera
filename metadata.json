@@ -1,0 +1,8 @@
+{
+  "name": "Retro Cam AI",
+  "description": "A retro-styled camera that turns your shots into captioned polaroids using Gemini.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}

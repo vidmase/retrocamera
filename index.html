@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Retro Cam AI</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;700&family=Special+Elite&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            hand: ['"Caveat"', 'cursive'],
+            mono: ['"Special Elite"', 'monospace'],
+          },
+          colors: {
+            leather: '#3E2723',
+            leatherLight: '#5D4037',
+            silver: '#E0E0E0',
+            chrome: '#B0BEC5',
+            accent: '#FF5722',
+          },
+          animation: {
+            'develop': 'develop 2s ease-out forwards',
+            'emerge': 'emerge 5s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards',
+            'eject': 'eject 3s ease-out forwards',
+            'develop-negative': 'developNegative 5s ease-out forwards',
+          },
+          keyframes: {
+            develop: {
+              '0%': { opacity: '0', filter: 'brightness(5) blur(5px)' },
+              '100%': { opacity: '1', filter: 'brightness(1) blur(0)' },
+            },
+            emerge: {
+              '0%': { transform: 'translateY(220px) scale(0.95)', filter: 'brightness(0.6)' },
+              '100%': { transform: 'translateY(0) scale(1)', filter: 'brightness(1)' },
+            },
+            eject: {
+              '0%': { transform: 'translateY(-100%)', filter: 'brightness(0.8)' },
+              '100%': { transform: 'translateY(0)', filter: 'brightness(1)' },
+            },
+            developNegative: {
+              '0%': { filter: 'invert(1) grayscale(1) contrast(1.2)' },
+              '20%': { filter: 'invert(1) grayscale(1) contrast(1.2)' },
+              '100%': { filter: 'invert(0) grayscale(0) contrast(1)' },
+            }
+          }
+        },
+      },
+    }
+  </script>
+  <style>
+    /* Custom scrollbar for the gallery */
+    .hide-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+
+    .hide-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+
+    .polaroid-shadow {
+      box-shadow: 5px 5px 15px rgba(0, 0, 0, 0.3);
+    }
+  </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0"
+  }
+}
+</script>
+  <link rel="stylesheet" href="/index.css">
+</head>
+
+<body class="bg-zinc-900 text-white h-screen overflow-hidden selection:bg-accent selection:text-white">
+  <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+
+</html>
