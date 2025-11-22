@@ -9,10 +9,12 @@ interface PolaroidProps {
 }
 
 const Polaroid: React.FC<PolaroidProps> = ({ photo, onFocus, onDragEnd, className = '' }) => {
-  const dateStr = new Date(photo.timestamp).toLocaleDateString(undefined, {
+  const dateStr = new Date(photo.timestamp).toLocaleString(undefined, {
     year: '2-digit',
     month: 'short',
-    day: 'numeric'
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
   });
 
   // We initialize state from props, but we don't sync it back to props automatically 
@@ -111,7 +113,7 @@ const Polaroid: React.FC<PolaroidProps> = ({ photo, onFocus, onDragEnd, classNam
             src={photo.dataUrl}
             alt="Memory"
             className={`w-full h-full object-cover ${photo.isDeveloping ? 'animate-develop-negative' :
-                photo.isStaticNegative ? 'invert grayscale contrast-[1.2]' : ''
+              photo.isStaticNegative ? 'invert grayscale contrast-[1.2]' : ''
               }`}
           />
           <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/dust.png')] opacity-30 mix-blend-overlay" />
@@ -120,7 +122,7 @@ const Polaroid: React.FC<PolaroidProps> = ({ photo, onFocus, onDragEnd, classNam
         {/* Caption Area */}
         <div className="text-center h-12 flex flex-col justify-center items-center pointer-events-none">
           <p className="font-hand text-2xl text-gray-800 leading-none">
-            {photo.caption || (photo.isDeveloping ? "Developing..." : "")}
+            {photo.caption || ""}
           </p>
           <p className="font-mono text-[10px] text-gray-400 mt-1 uppercase tracking-widest">{dateStr}</p>
         </div>

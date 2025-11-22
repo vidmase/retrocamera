@@ -10,10 +10,10 @@ export const generateCaption = async (base64Image: string): Promise<string> => {
 
   try {
     const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
-    
+
     // Extract actual base64 data if it contains the prefix
-    const cleanBase64 = base64Image.includes('base64,') 
-      ? base64Image.split('base64,')[1] 
+    const cleanBase64 = base64Image.includes('base64,')
+      ? base64Image.split('base64,')[1]
       : base64Image;
 
     const response = await ai.models.generateContent({
@@ -27,7 +27,7 @@ export const generateCaption = async (base64Image: string): Promise<string> => {
             }
           },
           {
-            text: "Generate a very short, nostalgic, handwritten-style caption (max 6 words) for this polaroid photo. It should feel like a memory from the 80s or 90s. Return only the text."
+            text: "Generate a very short, funny, witty, or sarcastic handwritten-style caption (max 6 words) for this polaroid photo. Make it sound like a fun memory or a joke. Return only the text."
           }
         ]
       },
