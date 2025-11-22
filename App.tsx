@@ -39,6 +39,7 @@ function App() {
   const [isAiEnabled, setIsAiEnabled] = useState(true);
   const [maxZIndex, setMaxZIndex] = useState(30);
   const [customText, setCustomText] = useState("May I meet you");
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const playPrinting = usePrintingSound();
 
@@ -161,7 +162,7 @@ function App() {
         isDeveloping: false, // Don't animate yet
         isStaticNegative: true, // Keep as negative
         isEjecting: true,
-        customText: customText,
+        customText: isAiEnabled ? undefined : customText,
         x: spawnX,
         y: spawnY,
         rotation: 0, // CSS animation handles rotation during fall
@@ -274,10 +275,10 @@ function App() {
       <div className="absolute inset-0 flex flex-col lg:flex-row w-full h-full pointer-events-none z-20">
 
         {/* Left/Top Column: Camera Zone 
-              - Moves camera up (justify-start + pt-24) on mobile to allow space for falling photo
+              - Moves camera up (justify-start + pt-12) on mobile to allow space for falling photo
               - Moves camera up (pb-32) on desktop
           */}
-        <div className="w-full lg:w-[40%] h-[55%] lg:h-full relative flex flex-col justify-start pt-24 lg:justify-center lg:pt-0 lg:pb-32 items-center">
+        <div className="w-full lg:w-[40%] h-[55%] lg:h-full relative flex flex-col justify-start pt-12 lg:justify-center lg:pt-0 lg:pb-32 items-center">
           {/* Header */}
           <div className="absolute top-0 left-0 w-full p-4 lg:p-6 z-40 flex justify-between items-start">
             <div className="flex items-center gap-3 text-white/80 pointer-events-auto w-fit bg-black/20 backdrop-blur-sm p-2 rounded-lg lg:bg-transparent lg:backdrop-blur-none lg:p-0">
@@ -287,7 +288,7 @@ function App() {
           </div>
 
           {/* Camera Body Container */}
-          <div ref={cameraBodyRef} className="relative w-[85vw] max-w-[360px] select-none pointer-events-auto mt-8 lg:mt-0">
+          <div ref={cameraBodyRef} className="relative w-[85vw] max-w-[360px] select-none pointer-events-auto mt-2 lg:mt-0">
             <img
               src="https://www.bubbbly.com/assets/retro-camera.webp"
               alt="Retro Camera"
@@ -328,32 +329,49 @@ function App() {
           </div>
         </div>
 
-        {/* Right/Bottom Column: Settings Overlay & Gallery Space */}
-        <div className="w-full lg:w-[60%] h-[45%] lg:h-full relative">
-          {/* Controls: Bottom center on mobile, Top right on desktop */}
-          <div className="absolute top-4 left-0 w-full flex justify-center lg:justify-end lg:top-6 lg:right-6 lg:w-auto z-50 px-4 pointer-events-auto">
-            <div className="bg-black/30 backdrop-blur-md p-2 rounded-xl border border-white/10 flex gap-3 lg:gap-4 shadow-xl max-w-full overflow-x-auto hide-scrollbar">
+        {/* Settings UI - Moved to Top Right */}
+        <div className="absolute top-4 right-4 lg:top-6 lg:right-6 z-50 flex flex-col items-end pointer-events-auto">
+
+          {/* Mobile Toggle Button */}
+          <button
+            onClick={() => setIsSettingsOpen(!isSettingsOpen)}
+            className="lg:hidden mb-2 bg-black/40 backdrop-blur-md border border-white/10 text-white/80 px-3 py-1 rounded-full text-sm font-mono flex items-center gap-2"
+          >
+            <i className={`fas ${isSettingsOpen ? 'fa-times' : 'fa-sliders-h'}`} />
+            {isSettingsOpen ? 'Close' : 'Settings'}
+          </button>
+
+          <div className={`${isSettingsOpen ? 'flex' : 'hidden'} lg:flex bg-black/40 backdrop-blur-md p-2 rounded-xl border border-white/10 flex-col lg:flex-row items-end lg:items-center gap-2 lg:gap-4 shadow-xl`}>
+            <div className="flex gap-2 lg:gap-4">
               <RetroSwitch isOn={state.isFlashOn} onToggle={() => setState(prev => ({ ...prev, isFlashOn: !prev.isFlashOn }))} label="Flash" />
               <RetroSwitch isOn={isAiEnabled} onToggle={() => setIsAiEnabled(!isAiEnabled)} label="AI" />
-              <div className="flex items-center border-l border-white/10 pl-3 ml-1">
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center border-l border-white/10 pl-2 ml-1 lg:pl-3">
                 <input
                   type="text"
                   value={customText}
                   onChange={(e) => setCustomText(e.target.value)}
-                  placeholder="Enter text..."
-                  className="bg-transparent border-b border-white/30 text-white font-mono text-sm px-2 py-1 outline-none focus:border-accent w-32 placeholder:text-white/30"
+                  disabled={isAiEnabled}
+                  placeholder={isAiEnabled ? "AI Enabled" : "Enter text..."}
+                  className={`bg-transparent border-b border-white/30 text-white font-mono text-xs lg:text-sm px-1 py-1 outline-none focus:border-accent w-24 lg:w-32 placeholder:text-white/30 transition-opacity ${isAiEnabled ? 'opacity-50 cursor-not-allowed' : ''}`}
                   maxLength={20}
                 />
               </div>
               <button
                 onClick={() => setPhotos([])}
-                className="ml-2 px-3 py-1 text-white/80 hover:text-accent transition-colors font-fredericka text-lg tracking-widest"
+                className="ml-1 px-2 py-1 text-white/80 hover:text-accent transition-colors font-fredericka text-base lg:text-lg tracking-widest"
                 title="Reset Photos"
               >
                 Reset
               </button>
             </div>
           </div>
+        </div>
+
+        {/* Right/Bottom Column: Gallery Space */}
+        <div className="w-full lg:w-[60%] h-[45%] lg:h-full relative">
+          {/* Controls moved to top right */}
 
           <div className="absolute bottom-4 w-full text-center lg:bottom-6 lg:right-6 lg:w-auto lg:text-right text-white/20 font-mono text-xs lg:text-sm pointer-events-none select-none">
             DRAG PHOTOS TO KEEP
