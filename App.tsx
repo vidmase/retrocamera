@@ -35,6 +35,21 @@ const usePrintingSound = () => {
   return play;
 };
 
+const useShutterSound = () => {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  useEffect(() => {
+    audioRef.current = new Audio("/shoot_sound.mp3");
+  }, []);
+  const play = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.currentTime = 0;
+      audioRef.current.volume = 0.6;
+      audioRef.current.play().catch(() => { });
+    }
+  }, []);
+  return play;
+};
+
 function App() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -61,9 +76,11 @@ function App() {
   const [customText, setCustomText] = useState("May I meet you");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [showPageFlash, setShowPageFlash] = useState(false);
+  const [flashBurstPos, setFlashBurstPos] = useState<{ x: number, y: number } | null>(null);
 
   const playPrinting = usePrintingSound();
   const playReload = useReloadSound();
+  const playShutter = useShutterSound();
 
   // Initialize Camera
   useEffect(() => {
@@ -137,11 +154,25 @@ function App() {
     const video = videoRef.current;
     if (video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) return;
 
-    playPrinting();
+    if (video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) return;
+
+    playShutter();
     setState(prev => ({ ...prev, isCapturing: true }));
     setShotsLeft(prev => prev - 1); // Decrement shots
-    setShowPageFlash(true);
-    setTimeout(() => setShowPageFlash(false), 400);
+
+    // Calculate flash burst position
+    if (state.isFlashOn) {
+      if (cameraBodyRef.current) {
+        const rect = cameraBodyRef.current.getBoundingClientRect();
+        // Flash unit center: Left 12% + half of 22% width, Top 12% + half of 22% height
+        const flashX = rect.left + (rect.width * 0.23);
+        const flashY = rect.top + (rect.height * 0.23);
+        setFlashBurstPos({ x: flashX, y: flashY });
+      }
+
+      setShowPageFlash(true);
+      setTimeout(() => setShowPageFlash(false), 400);
+    }
 
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
@@ -165,64 +196,68 @@ function App() {
       squareCtx.drawImage(canvas, startX, startY, size, size, 0, 0, size, size);
       const dataUrl = squareCanvas.toDataURL('image/jpeg', 0.9);
 
-      // Calculate spawn position
-      let spawnX = 100;
-      let spawnY = 100;
-
-      if (cameraBodyRef.current) {
-        const rect = cameraBodyRef.current.getBoundingClientRect();
-        // Center alignment: Camera Left + (Camera Width / 2) - (Polaroid Width / 2)
-        // Polaroid is w-64 = 16rem = 256px. 128px is half width.
-        spawnX = rect.left + (rect.width / 2) - 128;
-
-        // Spawn Y target: Falling from the bottom.
-        // We set the target position (100%) to be below the camera body.
-        // The CSS animation starts at -200px relative to this position (hidden behind camera).
-        spawnY = rect.bottom - 60;
-      }
-
-      const newPhoto: Photo = {
-        id: crypto.randomUUID(),
-        dataUrl: dataUrl,
-        timestamp: Date.now(),
-        isDeveloping: false, // Don't animate yet
-        isStaticNegative: true, // Keep as negative
-        isEjecting: true,
-        customText: isAiEnabled ? undefined : customText,
-        x: spawnX,
-        y: spawnY,
-        rotation: 0, // CSS animation handles rotation during fall
-        zIndex: 1
-      };
-
-      setPendingPhoto(newPhoto);
-
-      // Flash Effect
+      // Flash Effect (Immediate)
       const flash = document.getElementById('camera-flash');
       if (flash && state.isFlashOn) {
         flash.style.opacity = '1';
         setTimeout(() => { flash.style.opacity = '0'; }, 100);
       }
 
-      // AI Caption
-      if (isAiEnabled) {
-        generateCaption(dataUrl).then(caption => {
-          // Update pending photo if it's still there
-          setPendingPhoto(curr => {
-            if (curr && curr.id === newPhoto.id) {
-              return { ...curr, caption };
-            }
-            return curr;
-          });
-          // Update saved photos if user already dragged it
-          setPhotos(prev => prev.map(p => p.id === newPhoto.id ? { ...p, caption } : p));
-        });
-      }
-    }
+      // Delay Photo Ejection by 1 second
+      setTimeout(() => {
+        playPrinting();
 
-    setTimeout(() => {
-      setState(prev => ({ ...prev, isCapturing: false }));
-    }, 500);
+        // Calculate spawn position
+        let spawnX = 100;
+        let spawnY = 100;
+
+        if (cameraBodyRef.current) {
+          const rect = cameraBodyRef.current.getBoundingClientRect();
+          // Center alignment: Camera Left + (Camera Width / 2) - (Polaroid Width / 2)
+          spawnX = rect.left + (rect.width / 2) - 128;
+
+          // Spawn Y target: Falling from the bottom.
+          spawnY = rect.bottom - 60;
+        }
+
+        const newPhoto: Photo = {
+          id: crypto.randomUUID(),
+          dataUrl: dataUrl,
+          timestamp: Date.now(),
+          isDeveloping: false, // Don't animate yet
+          isStaticNegative: true, // Keep as negative
+          isEjecting: true,
+          customText: isAiEnabled ? undefined : customText,
+          x: spawnX,
+          y: spawnY,
+          rotation: 0, // CSS animation handles rotation during fall
+          zIndex: 1
+        };
+
+        setPendingPhoto(newPhoto);
+
+        // AI Caption
+        if (isAiEnabled) {
+          generateCaption(dataUrl).then(caption => {
+            // Update pending photo if it's still there
+            setPendingPhoto(curr => {
+              if (curr && curr.id === newPhoto.id) {
+                return { ...curr, caption };
+              }
+              return curr;
+            });
+            // Update saved photos if user already dragged it
+            setPhotos(prev => prev.map(p => p.id === newPhoto.id ? { ...p, caption } : p));
+          });
+        }
+
+        // Reset capturing state after ejection starts
+        setTimeout(() => {
+          setState(prev => ({ ...prev, isCapturing: false }));
+        }, 500);
+
+      }, 4000);
+    }
   };
 
   const handlePendingDragEnd = (id: string, x: number, y: number) => {
@@ -264,12 +299,38 @@ function App() {
         <div
           className="fixed z-[100] pointer-events-none"
           style={{
-            top: '50%',
-            left: '50%',
+            top: flashBurstPos ? flashBurstPos.y : '50%',
+            left: flashBurstPos ? flashBurstPos.x : '50%',
             transform: 'translate(-50%, -50%)'
           }}
         >
+          {/* 1. Global Room Flash (The big expanding circle) */}
           <div className="absolute top-1/2 left-1/2 w-4 h-4 bg-white rounded-full animate-flash-burst shadow-[0_0_100px_50px_rgba(255,255,255,0.8)]" />
+
+          {/* 2. Concentrated Source Flare */}
+          {/* Core Glow */}
+          <div className="absolute top-1/2 left-1/2 w-32 h-32 bg-white/80 rounded-full blur-2xl animate-flash-core" />
+
+          {/* Sharp Center */}
+          <div className="absolute top-1/2 left-1/2 w-8 h-8 bg-white rounded-full shadow-[0_0_50px_20px_white] animate-flash-core" />
+
+          {/* Starburst Rays - Wrapped in rotated containers to preserve animation transform */}
+          {/* Horizontal */}
+          <div className="absolute top-1/2 left-1/2 w-0 h-0 flex items-center justify-center">
+            <div className="w-[150vmax] h-[2px] bg-gradient-to-r from-transparent via-white to-transparent animate-flash-ray" />
+          </div>
+          {/* Vertical */}
+          <div className="absolute top-1/2 left-1/2 w-0 h-0 flex items-center justify-center rotate-90">
+            <div className="w-[150vmax] h-[2px] bg-gradient-to-r from-transparent via-white to-transparent animate-flash-ray" />
+          </div>
+          {/* Diagonal 1 */}
+          <div className="absolute top-1/2 left-1/2 w-0 h-0 flex items-center justify-center rotate-45">
+            <div className="w-[100vmax] h-[1px] bg-gradient-to-r from-transparent via-white/80 to-transparent animate-flash-ray" />
+          </div>
+          {/* Diagonal 2 */}
+          <div className="absolute top-1/2 left-1/2 w-0 h-0 flex items-center justify-center -rotate-45">
+            <div className="w-[100vmax] h-[1px] bg-gradient-to-r from-transparent via-white/80 to-transparent animate-flash-ray" />
+          </div>
         </div>
       )}
 
@@ -345,6 +406,38 @@ function App() {
               alt="Retro Camera"
               className="w-full h-auto drop-shadow-2xl relative pointer-events-none"
             />
+            {/* Flash Unit - Visual Only */}
+            <div
+              className="absolute z-40"
+              style={{ top: '13.5%', left: '14.5%', width: '19%', height: '19%' }}
+            >
+              {/* Glass Container with Fresnel Lens Effect */}
+              <div className={`relative w-full h-full rounded-xl overflow-hidden transition-all duration-500 ${state.isFlashOn
+                ? 'shadow-[inset_0_0_15px_rgba(255,255,255,0.4)]'
+                : 'opacity-0'
+                }`}>
+
+                {/* Fresnel Lens Texture (Grid pattern) */}
+                <div className="absolute inset-0 bg-[repeating-linear-gradient(90deg,transparent,transparent_2px,rgba(255,255,255,0.1)_3px,transparent_4px)] opacity-30" />
+                <div className="absolute inset-0 bg-[repeating-linear-gradient(0deg,transparent,transparent_2px,rgba(255,255,255,0.1)_3px,transparent_4px)] opacity-20" />
+
+                {/* "Charged" Gas Glow (Only when ON) - Subtle blueish tint of xenon */}
+                <div className={`absolute inset-0 bg-blue-100/10 transition-opacity duration-700 ${state.isFlashOn ? 'opacity-100' : 'opacity-0'}`} />
+
+                {/* Xenon Bulb (The horizontal tube) */}
+                <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[70%] h-[15%] rounded-full transition-all duration-500 ${state.isFlashOn
+                  ? 'bg-white/80 shadow-[0_0_10px_rgba(255,255,255,0.6)] blur-[1px]'
+                  : 'bg-transparent'
+                  }`} />
+
+                {/* Glass Shine/Reflection */}
+                <div className="absolute inset-0 bg-gradient-to-tr from-white/10 via-transparent to-transparent opacity-30" />
+
+                {/* The actual flash burst whiteout overlay */}
+                <div id="camera-flash" className="absolute inset-0 bg-white opacity-0 pointer-events-none transition-opacity duration-100 mix-blend-hard-light" />
+              </div>
+            </div>
+
             {/* Lens - LOCKED */}
             <div
               className="absolute w-[30%] aspect-square rounded-full bg-black overflow-hidden shadow-[inset_0_10px_25px_rgba(0,0,0,0.8)] ring-4 ring-[#111]"
@@ -361,7 +454,6 @@ function App() {
                 className="w-full h-full object-cover transform scale-[1.35] pointer-events-none"
               />
               <div className="absolute inset-0 rounded-full shadow-[inset_0_0_40px_rgba(0,0,0,0.8)] pointer-events-none" />
-              <div id="camera-flash" className="absolute inset-0 bg-white opacity-0 pointer-events-none transition-opacity duration-100 z-50" />
             </div>
 
             {/* Shutter Button - Mapped to left 18% as requested */}
@@ -409,6 +501,23 @@ function App() {
                 <div className="text-white font-mono text-sm animate-pulse">RELOADING...</div>
               </div>
             )}
+
+            {/* Flash Toggle Button (Moved to Bottom) */}
+            <button
+              onClick={() => setState(prev => ({ ...prev, isFlashOn: !prev.isFlashOn }))}
+              className={`absolute z-50 flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all duration-300 shadow-lg ${state.isFlashOn
+                ? 'bg-yellow-500/20 border-yellow-500/50 text-yellow-200 shadow-[0_0_15px_rgba(234,179,8,0.3)]'
+                : 'bg-black/40 border-white/10 text-white/40 hover:bg-black/60'
+                }`}
+              style={{
+                bottom: '8%',
+                left: '50%',
+                transform: 'translateX(-50%)'
+              }}
+            >
+              <i className={`fas fa-bolt text-sm ${state.isFlashOn ? 'animate-pulse' : ''}`} />
+              <span className="font-mono text-[10px] tracking-widest font-bold">FLASH</span>
+            </button>
           </div>
         </div>
 
@@ -426,7 +535,7 @@ function App() {
 
           <div className={`${isSettingsOpen ? 'flex' : 'hidden'} lg:flex bg-black/40 backdrop-blur-md p-2 rounded-xl border border-white/10 flex-col lg:flex-row items-end lg:items-center gap-2 lg:gap-4 shadow-xl`}>
             <div className="flex gap-2 lg:gap-4">
-              <RetroSwitch isOn={state.isFlashOn} onToggle={() => setState(prev => ({ ...prev, isFlashOn: !prev.isFlashOn }))} label="Flash" />
+              {/* Flash removed from here */}
               <RetroSwitch isOn={isAiEnabled} onToggle={() => setIsAiEnabled(!isAiEnabled)} label="AI" />
             </div>
             <div className="flex items-center gap-2">

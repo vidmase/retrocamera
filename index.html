@@ -32,6 +32,8 @@
             'eject': 'eject 3s ease-out forwards',
             'develop-negative': 'developNegative 5s ease-out forwards',
             'flash-burst': 'flashBurst 0.4s ease-out forwards',
+            'flash-core': 'flashCore 0.3s ease-out forwards',
+            'flash-ray': 'flashRay 0.4s ease-out forwards',
           },
           keyframes: {
             develop: {
@@ -51,9 +53,19 @@
               '20%': { filter: 'invert(1) grayscale(1) contrast(1.2)' },
               '100%': { filter: 'invert(0) grayscale(0) contrast(1)' },
             },
+            flashCore: {
+              '0%': { transform: 'translate(-50%, -50%) scale(0.1)', opacity: '1', filter: 'brightness(2)' },
+              '10%': { transform: 'translate(-50%, -50%) scale(1.5)', opacity: '1', filter: 'brightness(5)' },
+              '100%': { transform: 'translate(-50%, -50%) scale(0.5)', opacity: '0', filter: 'brightness(1)' },
+            },
+            flashRay: {
+              '0%': { transform: 'translate(-50%, -50%) scale(0) rotate(0deg)', opacity: '0' },
+              '10%': { transform: 'translate(-50%, -50%) scale(1.5) rotate(0deg)', opacity: '1' },
+              '100%': { transform: 'translate(-50%, -50%) scale(2) rotate(10deg)', opacity: '0' },
+            },
             flashBurst: {
               '0%': { transform: 'translate(-50%, -50%) scale(0)', opacity: '1' },
-              '10%': { transform: 'translate(-50%, -50%) scale(50)', opacity: '1' },
+              '5%': { transform: 'translate(-50%, -50%) scale(50)', opacity: '1' },
               '100%': { transform: 'translate(-50%, -50%) scale(100)', opacity: '0' },
             }
           }
