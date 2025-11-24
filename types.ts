@@ -12,6 +12,7 @@ export interface Photo {
   y: number;
   rotation: number;
   zIndex: number;
+  backNote?: string;
 }
 
 export interface CameraState {

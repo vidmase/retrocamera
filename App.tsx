@@ -214,7 +214,10 @@ function App() {
         if (cameraBodyRef.current) {
           const rect = cameraBodyRef.current.getBoundingClientRect();
           // Center alignment: Camera Left + (Camera Width / 2) - (Polaroid Width / 2)
-          spawnX = rect.left + (rect.width / 2) - 128;
+          // Mobile (w-56 = 224px) -> half is 112px
+          // Desktop (w-64 = 256px) -> half is 128px
+          const halfWidth = window.innerWidth < 640 ? 112 : 128;
+          spawnX = rect.left + (rect.width / 2) - halfWidth;
 
           // Spawn Y target: Falling from the bottom.
           spawnY = rect.bottom - 60;
@@ -279,6 +282,11 @@ function App() {
     setMaxZIndex(prev => prev + 1);
     setPhotos(prev => [...prev, finalPhoto]);
     setPendingPhoto(null);
+
+    // Enable interaction (flip) after development animation finishes (5s)
+    setTimeout(() => {
+      setPhotos(prev => prev.map(p => p.id === id ? { ...p, isDeveloping: false } : p));
+    }, 5200);
   };
 
   const handleReload = () => {
@@ -359,8 +367,8 @@ function App() {
             // So wrapper starts at x-20, y.
             left: pendingPhoto.x - 20,
             top: pendingPhoto.y,
-            width: '300px', // 256px (photo) + 40px (padding) + extra
-            height: '450px', // Enough for photo + shadow
+            width: window.innerWidth < 640 ? '260px' : '300px', // Responsive wrapper width
+            height: window.innerWidth < 640 ? '380px' : '450px', // Responsive wrapper height
             zIndex: 10
           }}
         >
@@ -505,7 +513,7 @@ function App() {
             {/* Flash Toggle Button (Moved to Bottom) */}
             <button
               onClick={() => setState(prev => ({ ...prev, isFlashOn: !prev.isFlashOn }))}
-              className={`absolute z-50 flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all duration-300 shadow-lg ${state.isFlashOn
+              className={`absolute z-50 flex items-center gap-2 px-4 py-2 rounded-full border transition-all duration-300 shadow-lg ${state.isFlashOn
                 ? 'bg-yellow-500/20 border-yellow-500/50 text-yellow-200 shadow-[0_0_15px_rgba(234,179,8,0.3)]'
                 : 'bg-black/40 border-white/10 text-white/40 hover:bg-black/60'
                 }`}
@@ -515,8 +523,8 @@ function App() {
                 transform: 'translateX(-50%)'
               }}
             >
-              <i className={`fas fa-bolt text-sm ${state.isFlashOn ? 'animate-pulse' : ''}`} />
-              <span className="font-mono text-[10px] tracking-widest font-bold">FLASH</span>
+              <i className={`fas fa-bolt text-xs sm:text-sm ${state.isFlashOn ? 'animate-pulse' : ''}`} />
+              <span className="font-mono text-[10px] sm:text-xs tracking-widest font-bold">FLASH</span>
             </button>
           </div>
         </div>
