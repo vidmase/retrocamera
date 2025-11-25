@@ -20,4 +20,5 @@ export interface CameraState {
   permissionGranted: boolean;
   isFlashOn: boolean;
   isCapturing: boolean;
+  isPoweredOn: boolean;
 }

@@ -3,8 +3,11 @@ import { CameraState, Photo } from './types';
 import { RetroSwitch } from './components/RetroSwitch';
 import Polaroid from './components/Polaroid';
 import { generateCaption } from './services/geminiService';
+import { supabase } from './services/supabaseClient';
+import { AuthModal } from './components/AuthModal';
 
 const useReloadSound = () => {
+
   const audioRef = useRef<HTMLAudioElement | null>(null);
   useEffect(() => {
     // Mechanical camera wind/reload sound
@@ -56,11 +59,29 @@ function App() {
   const streamRef = useRef<MediaStream | null>(null);
   const cameraBodyRef = useRef<HTMLDivElement>(null);
 
+  // Auth State
+  const [user, setUser] = useState<any>(null);
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
+
+  // Check Supabase Session
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
   const [state, setState] = useState<CameraState>({
     stream: null,
     permissionGranted: false,
     isFlashOn: false,
     isCapturing: false,
+    isPoweredOn: false,
   });
   const [photos, setPhotos] = useState<Photo[]>([]);
 
@@ -78,9 +99,91 @@ function App() {
   const [showPageFlash, setShowPageFlash] = useState(false);
   const [flashBurstPos, setFlashBurstPos] = useState<{ x: number, y: number } | null>(null);
 
+  // Collaboration State
+  const [room, setRoom] = useState("global");
+
   const playPrinting = usePrintingSound();
   const playReload = useReloadSound();
   const playShutter = useShutterSound();
+
+  // Load & Subscribe to Photos
+  useEffect(() => {
+    if (!user) {
+      setPhotos([]);
+      return;
+    }
+
+    // 1. Fetch initial photos
+    const fetchPhotos = async () => {
+      const { data, error } = await supabase
+        .from('photos')
+        .select('*')
+        .eq('room_id', room)
+        .order('created_at', { ascending: true })
+        .limit(50); // Limit to last 50 to prevent crash
+
+      if (data) {
+        // Map DB fields to Photo type
+        const mapped: Photo[] = data.map((p: any) => ({
+          id: p.id,
+          dataUrl: p.data_url,
+          timestamp: new Date(p.created_at).getTime(),
+          isDeveloping: false,
+          isStaticNegative: false,
+          isEjecting: false,
+          caption: p.caption,
+          x: p.x,
+          y: p.y,
+          rotation: p.rotation,
+          zIndex: p.z_index,
+          customText: p.caption ? undefined : "Shared Memory" // Fallback
+        }));
+        setPhotos(mapped);
+        if (mapped.length > 0) {
+          setMaxZIndex(Math.max(...mapped.map(p => p.zIndex)) + 1);
+        }
+      }
+    };
+
+    fetchPhotos();
+
+    // 2. Subscribe to changes
+    const channel = supabase
+      .channel(`room:${room}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'photos', filter: `room_id=eq.${room}` }, (payload) => {
+        const p = payload.new as any;
+        const newPhoto: Photo = {
+          id: p.id,
+          dataUrl: p.data_url,
+          timestamp: new Date(p.created_at).getTime(),
+          isDeveloping: true, // Animate in
+          isStaticNegative: false,
+          isEjecting: false,
+          caption: p.caption,
+          x: p.x,
+          y: p.y,
+          rotation: p.rotation,
+          zIndex: p.z_index,
+          customText: p.caption ? undefined : "Shared Memory"
+        };
+
+        // Only add if not already present (prevent double add from local optimistic update if we did that, but here we rely on sub)
+        setPhotos(prev => {
+          if (prev.find(existing => existing.id === newPhoto.id)) return prev;
+          return [...prev, newPhoto];
+        });
+
+        // Stop developing animation after 5s
+        setTimeout(() => {
+          setPhotos(prev => prev.map(ph => ph.id === newPhoto.id ? { ...ph, isDeveloping: false } : ph));
+        }, 5200);
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [room, user]);
 
   // Initialize Camera
   useEffect(() => {
@@ -88,6 +191,13 @@ function App() {
     let currentStream: MediaStream | null = null;
 
     const initCamera = async () => {
+      if (!state.isPoweredOn) {
+        if (state.stream) {
+          setState(prev => ({ ...prev, stream: null }));
+        }
+        return;
+      }
+
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
@@ -122,7 +232,7 @@ function App() {
         currentStream.getTracks().forEach(track => track.stop());
       }
     };
-  }, []);
+  }, [state.isPoweredOn]);
 
   useEffect(() => {
     const videoEl = videoRef.current;
@@ -147,7 +257,7 @@ function App() {
 
   const takePhoto = async () => {
     if (pendingPhoto) return; // Block if slot occupied
-    if (shotsLeft <= 0 || isReloading) return; // Block if empty or reloading
+    if (shotsLeft <= 0 || isReloading || !state.isPoweredOn) return; // Block if empty, reloading, or off
 
     if (!videoRef.current || !canvasRef.current || state.isCapturing) return;
 
@@ -250,7 +360,7 @@ function App() {
               return curr;
             });
             // Update saved photos if user already dragged it
-            setPhotos(prev => prev.map(p => p.id === newPhoto.id ? { ...p, caption } : p));
+            // setPhotos(prev => prev.map(p => p.id === newPhoto.id ? { ...p, caption } : p));
           });
         }
 
@@ -259,34 +369,62 @@ function App() {
           setState(prev => ({ ...prev, isCapturing: false }));
         }, 500);
 
+        // End ejection animation after 3s to show the drag hint
+        setTimeout(() => {
+          setPendingPhoto(curr => curr ? { ...curr, isEjecting: false } : null);
+        }, 3000);
+
       }, 4000);
     }
   };
 
-  const handlePendingDragEnd = (id: string, x: number, y: number) => {
+  const handlePendingDragEnd = async (id: string, x: number, y: number) => {
     if (!pendingPhoto || pendingPhoto.id !== id) return;
 
-    // Move from Pending (Behind) to Photos (Front)
-    // Setting isDeveloping to false here triggers the sharpen effect
-    const finalPhoto = {
-      ...pendingPhoto,
-      x: x,
-      y: y,
-      isEjecting: false,
-      isDeveloping: true, // Start developing animation
-      isStaticNegative: false, // Remove static negative
-      rotation: (Math.random() * 10 - 5),
-      zIndex: maxZIndex + 1
-    };
+    // If user is not logged in, just keep local behavior or prompt?
+    // For now, let's allow local but warn or just do local if no user.
+    // Actually, let's require login for "keeping" if we want to enforce collaboration.
+    // But better UX: If not logged in, just show locally. If logged in, save to DB.
+
+    const rotation = (Math.random() * 10 - 5);
+    const zIndex = maxZIndex + 1;
+
+    if (user) {
+      // Save to Supabase
+      const { error } = await supabase.from('photos').insert({
+        room_id: room,
+        data_url: pendingPhoto.dataUrl,
+        caption: pendingPhoto.caption,
+        x: x,
+        y: y,
+        rotation: rotation,
+        z_index: zIndex
+      });
+
+      if (error) {
+        console.error("Error saving photo:", error);
+        alert("Failed to save photo to the cloud!");
+      }
+    } else {
+      // Local fallback
+      const finalPhoto = {
+        ...pendingPhoto,
+        x: x,
+        y: y,
+        isEjecting: false,
+        isDeveloping: true,
+        isStaticNegative: false,
+        rotation: rotation,
+        zIndex: zIndex
+      };
+      setPhotos(prev => [...prev, finalPhoto]);
+      setTimeout(() => {
+        setPhotos(prev => prev.map(p => p.id === id ? { ...p, isDeveloping: false } : p));
+      }, 5200);
+    }
 
     setMaxZIndex(prev => prev + 1);
-    setPhotos(prev => [...prev, finalPhoto]);
     setPendingPhoto(null);
-
-    // Enable interaction (flip) after development animation finishes (5s)
-    setTimeout(() => {
-      setPhotos(prev => prev.map(p => p.id === id ? { ...p, isDeveloping: false } : p));
-    }, 5200);
   };
 
   const handleReload = () => {
@@ -302,6 +440,11 @@ function App() {
 
   return (
     <div className="relative h-screen w-full bg-stone-900 overflow-hidden font-sans selection:bg-accent selection:text-white touch-none">
+      <AuthModal
+        isOpen={isAuthOpen}
+        onClose={() => setIsAuthOpen(false)}
+        onLoginSuccess={() => setIsAuthOpen(false)}
+      />
       {/* Flash Burst Effect - Emanates from camera flash */}
       {showPageFlash && (
         <div
@@ -384,6 +527,25 @@ function App() {
             }}
             className={pendingPhoto.isEjecting ? "animate-eject" : ""}
           />
+
+          {/* Drag Hint - Appears after ejection */}
+          {!pendingPhoto.isEjecting && (
+            <div className="absolute z-50 pointer-events-none whitespace-nowrap top-full left-1/2 -translate-x-1/2 mt-4 lg:top-1/2 lg:left-full lg:ml-4 lg:-translate-y-1/2 lg:translate-x-0 lg:mt-0">
+              <div className="flex items-center gap-3 animate-bounce flex-col lg:flex-row">
+                {/* Arrow: Mobile=Down(90deg), Desktop=Right(0deg) */}
+                <i className="fas fa-long-arrow-alt-right text-white text-3xl drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)] transform rotate-90 lg:rotate-0" />
+                <div className="flex flex-col items-center lg:items-start">
+                  <span className="font-fredericka text-white text-xl tracking-widest drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)]">
+                    <span className="lg:hidden">DRAG DOWN TO</span>
+                    <span className="hidden lg:inline">DRAG TO</span>
+                  </span>
+                  <span className="font-fredericka text-accent text-xl tracking-widest drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)]">
+                    DEVELOP
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
         }
       </div>
@@ -414,15 +576,17 @@ function App() {
               alt="Retro Camera"
               className="w-full h-auto drop-shadow-2xl relative pointer-events-none"
             />
-            {/* Flash Unit - Visual Only */}
+            {/* Flash Unit - Interactive */}
             <div
-              className="absolute z-40"
+              className={`absolute z-40 cursor-pointer group ${!state.isPoweredOn ? 'pointer-events-none opacity-50' : ''}`}
               style={{ top: '13.5%', left: '14.5%', width: '19%', height: '19%' }}
+              onClick={() => state.isPoweredOn && setState(prev => ({ ...prev, isFlashOn: !prev.isFlashOn }))}
+              title="Toggle Flash"
             >
               {/* Glass Container with Fresnel Lens Effect */}
               <div className={`relative w-full h-full rounded-xl overflow-hidden transition-all duration-500 ${state.isFlashOn
                 ? 'shadow-[inset_0_0_15px_rgba(255,255,255,0.4)]'
-                : 'opacity-0'
+                : 'opacity-0 hover:opacity-100' // Show glass hint on hover
                 }`}>
 
                 {/* Fresnel Lens Texture (Grid pattern) */}
@@ -435,7 +599,7 @@ function App() {
                 {/* Xenon Bulb (The horizontal tube) */}
                 <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[70%] h-[15%] rounded-full transition-all duration-500 ${state.isFlashOn
                   ? 'bg-white/80 shadow-[0_0_10px_rgba(255,255,255,0.6)] blur-[1px]'
-                  : 'bg-transparent'
+                  : 'bg-white/10'
                   }`} />
 
                 {/* Glass Shine/Reflection */}
@@ -446,36 +610,55 @@ function App() {
               </div>
             </div>
 
-            {/* Lens - LOCKED */}
+            {/* Lens - Interactive Power Switch */}
             <div
-              className="absolute w-[30%] aspect-square rounded-full bg-black overflow-hidden shadow-[inset_0_10px_25px_rgba(0,0,0,0.8)] ring-4 ring-[#111]"
+              className="absolute w-[30%] aspect-square rounded-full bg-black overflow-hidden shadow-[inset_0_10px_25px_rgba(0,0,0,0.8)] ring-4 ring-[#111] cursor-pointer group"
               style={{
                 top: '40%',
                 left: '47%'
               }}
+              onClick={() => setState(prev => ({ ...prev, isPoweredOn: !prev.isPoweredOn }))}
+              title={state.isPoweredOn ? "Turn Off" : "Turn On"}
             >
+              {/* Video Stream */}
               <video
                 ref={videoRef}
                 autoPlay
                 playsInline
                 muted
-                className="w-full h-full object-cover transform scale-[1.35] pointer-events-none"
+                className={`w-full h-full object-cover transform scale-[1.35] pointer-events-none transition-opacity duration-700 ${state.isPoweredOn ? 'opacity-100' : 'opacity-0'}`}
               />
-              <div className="absolute inset-0 rounded-full shadow-[inset_0_0_40px_rgba(0,0,0,0.8)] pointer-events-none" />
+
+              {/* Mechanical Shutter Overlay */}
+              <div
+                className={`absolute inset-0 z-20 pointer-events-none transition-all duration-700 ease-in-out flex items-center justify-center`}
+                style={{
+                  background: 'conic-gradient(from 0deg, #111 0deg 60deg, #1a1a1a 60deg 120deg, #111 120deg 180deg, #1a1a1a 180deg 240deg, #111 240deg 300deg, #1a1a1a 300deg 360deg)',
+                  clipPath: state.isPoweredOn ? 'circle(0% at 50% 50%)' : 'circle(100% at 50% 50%)',
+                }}
+              >
+                {/* Power Icon on Shutter */}
+                <div className={`text-white/20 group-hover:text-white/60 transition-colors duration-300 ${state.isPoweredOn ? 'opacity-0' : 'opacity-100'}`}>
+                  <i className="fas fa-power-off text-3xl" />
+                </div>
+              </div>
+
+              {/* Lens Reflection/Glass Overlay */}
+              <div className="absolute inset-0 rounded-full shadow-[inset_0_0_40px_rgba(0,0,0,0.8)] pointer-events-none mix-blend-overlay" />
             </div>
 
             {/* Shutter Button - Mapped to left 18% as requested */}
             <button
               onClick={takePhoto}
-              disabled={!state.permissionGranted || state.isCapturing || !!pendingPhoto || shotsLeft <= 0 || isReloading}
-              className={`absolute w-[15%] aspect-square rounded-full focus:outline-none group transition-all z-50 ${!!pendingPhoto || shotsLeft <= 0 || isReloading ? 'cursor-not-allowed' : 'cursor-pointer active:scale-95'}`}
+              disabled={!state.permissionGranted || state.isCapturing || !!pendingPhoto || shotsLeft <= 0 || isReloading || !state.isPoweredOn}
+              className={`absolute w-[15%] aspect-square rounded-full focus:outline-none group transition-all z-50 ${!!pendingPhoto || shotsLeft <= 0 || isReloading || !state.isPoweredOn ? 'cursor-not-allowed' : 'cursor-pointer active:scale-95'}`}
               style={{
                 top: '48%',
                 left: '18%'
               }}
               aria-label="Take Photo"
             >
-              <div className={`w-full h-full rounded-full transition-colors duration-200 ${!!pendingPhoto || shotsLeft <= 0 || isReloading ? '' : 'hover:bg-white/10 active:bg-white/20'}`} />
+              <div className={`w-full h-full rounded-full transition-colors duration-200 ${!!pendingPhoto || shotsLeft <= 0 || isReloading || !state.isPoweredOn ? '' : 'hover:bg-white/10 active:bg-white/20'}`} />
             </button>
 
             {/* Film Counter */}
@@ -484,16 +667,15 @@ function App() {
               style={{ top: '12%', left: '50%', transform: 'translateX(-50%)' }}
             >
               <div className="bg-[#1a1a1a] border-2 border-[#333] rounded px-2 py-1 shadow-[inset_0_2px_5px_rgba(0,0,0,0.8)]">
-                <span className={`font-mono font-bold text-lg tracking-widest ${shotsLeft === 0 ? 'text-red-500 animate-pulse' : 'text-[#a3d9a5]'}`}>
-                  {shotsLeft}
+                <span className={`font-mono font-bold text-lg tracking-widest ${shotsLeft === 0 ? 'text-red-500 animate-pulse' : state.isPoweredOn ? 'text-[#a3d9a5]' : 'text-[#a3d9a5]/20'}`}>
+                  {state.isPoweredOn ? shotsLeft : '--'}
                 </span>
               </div>
               <span className="text-[8px] text-white/40 font-sans mt-1 tracking-wider">SHOTS</span>
             </div>
 
             {/* Reload Indicator / Button */}
-            {/* Reload Indicator / Button */}
-            {shotsLeft === 0 && !isReloading && (
+            {state.isPoweredOn && shotsLeft === 0 && !isReloading && (
               <button
                 onClick={handleReload}
                 className="absolute z-50 bg-red-600 hover:bg-red-500 text-white font-fredericka text-sm px-3 py-1 rounded shadow-lg animate-bounce cursor-pointer pointer-events-auto tracking-widest"
@@ -509,23 +691,6 @@ function App() {
                 <div className="text-white font-mono text-sm animate-pulse">RELOADING...</div>
               </div>
             )}
-
-            {/* Flash Toggle Button (Moved to Bottom) */}
-            <button
-              onClick={() => setState(prev => ({ ...prev, isFlashOn: !prev.isFlashOn }))}
-              className={`absolute z-50 flex items-center gap-2 px-4 py-2 rounded-full border transition-all duration-300 shadow-lg ${state.isFlashOn
-                ? 'bg-yellow-500/20 border-yellow-500/50 text-yellow-200 shadow-[0_0_15px_rgba(234,179,8,0.3)]'
-                : 'bg-black/40 border-white/10 text-white/40 hover:bg-black/60'
-                }`}
-              style={{
-                bottom: '8%',
-                left: '50%',
-                transform: 'translateX(-50%)'
-              }}
-            >
-              <i className={`fas fa-bolt text-xs sm:text-sm ${state.isFlashOn ? 'animate-pulse' : ''}`} />
-              <span className="font-mono text-[10px] sm:text-xs tracking-widest font-bold">FLASH</span>
-            </button>
           </div>
         </div>
 
@@ -542,11 +707,33 @@ function App() {
           </button>
 
           <div className={`${isSettingsOpen ? 'flex' : 'hidden'} lg:flex bg-black/40 backdrop-blur-md p-2 rounded-xl border border-white/10 flex-col lg:flex-row items-end lg:items-center gap-2 lg:gap-4 shadow-xl`}>
+
+            {/* Auth Button */}
+            <button
+              onClick={() => user ? supabase.auth.signOut() : setIsAuthOpen(true)}
+              className="px-3 py-1 bg-white/10 hover:bg-white/20 rounded text-white/80 font-mono text-xs flex items-center gap-2 transition-colors"
+            >
+              <i className={`fas ${user ? 'fa-sign-out-alt' : 'fa-user'}`} />
+              {user ? 'Logout' : 'Login'}
+            </button>
             <div className="flex gap-2 lg:gap-4">
               {/* Flash removed from here */}
               <RetroSwitch isOn={isAiEnabled} onToggle={() => setIsAiEnabled(!isAiEnabled)} label="AI" />
             </div>
             <div className="flex items-center gap-2">
+              {/* Room Input */}
+              <div className="flex items-center border-l border-white/10 pl-2 ml-1 lg:pl-3">
+                <span className="text-white/50 font-mono text-xs mr-2 hidden lg:inline">ROOM:</span>
+                <input
+                  type="text"
+                  value={room}
+                  onChange={(e) => setRoom(e.target.value)}
+                  placeholder="global"
+                  className="bg-transparent border-b border-white/30 text-white font-mono text-xs lg:text-sm px-1 py-1 outline-none focus:border-accent w-20 lg:w-24 placeholder:text-white/30 transition-opacity text-center uppercase"
+                  maxLength={10}
+                />
+              </div>
+
               <div className="flex items-center border-l border-white/10 pl-2 ml-1 lg:pl-3">
                 <input
                   type="text"
