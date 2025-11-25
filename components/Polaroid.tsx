@@ -39,6 +39,7 @@ const Polaroid: React.FC<PolaroidProps> = ({ photo, onFocus, onDragEnd, classNam
 
   const handleStart = (clientX: number, clientY: number, target: EventTarget | null) => {
     if (target && (target as HTMLElement).tagName === 'TEXTAREA') return;
+    if (photo.isEjecting) return;
 
     onFocus(photo.id);
     setIsDragging(true);
@@ -133,7 +134,7 @@ const Polaroid: React.FC<PolaroidProps> = ({ photo, onFocus, onDragEnd, classNam
   return (
     <div
       ref={elementRef}
-      className={`absolute w-56 sm:w-64 h-[22rem] sm:h-[26rem] select-none transition-shadow duration-300 ${className} ${isDragging ? 'z-[1000] scale-105' : ''}`}
+      className={`absolute w-44 sm:w-52 h-[18rem] sm:h-[21rem] select-none transition-shadow duration-300 ${className} ${isDragging ? 'z-[1000] scale-105' : ''}`}
       style={{
         left: position.x,
         top: position.y,
