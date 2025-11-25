@@ -113,6 +113,11 @@ function App() {
       return;
     }
 
+    let ignore = false;
+
+    // Clear photos immediately when switching rooms to avoid confusion
+    setPhotos([]);
+
     // 1. Fetch initial photos
     const fetchPhotos = async () => {
       const { data, error } = await supabase
@@ -120,24 +125,32 @@ function App() {
         .select('*')
         .eq('room_id', room)
         .order('created_at', { ascending: true })
-        .limit(50); // Limit to last 50 to prevent crash
+        .limit(50);
 
-      if (data) {
+      if (!ignore && data) {
         // Map DB fields to Photo type
-        const mapped: Photo[] = data.map((p: any) => ({
-          id: p.id,
-          dataUrl: p.data_url,
-          timestamp: new Date(p.created_at).getTime(),
-          isDeveloping: false,
-          isStaticNegative: false,
-          isEjecting: false,
-          caption: p.caption,
-          x: p.x,
-          y: p.y,
-          rotation: p.rotation,
-          zIndex: p.z_index,
-          customText: p.caption ? undefined : "Shared Memory" // Fallback
-        }));
+        const mapped: Photo[] = data.map((p: any) => {
+          // Check if coordinates are normalized (0-1) or absolute pixels
+          // We assume if x and y are both <= 1, they are percentages.
+          // (Unless someone drags to the top-left pixel 0,0 or 1,1, which is unlikely to be intentional absolute positioning for a photo card)
+          const isNormalized = p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1;
+
+          return {
+            id: p.id,
+            dataUrl: p.data_url,
+            timestamp: new Date(p.created_at).getTime(),
+            isDeveloping: false,
+            isStaticNegative: false,
+            isEjecting: false,
+            caption: p.caption,
+            // Convert percentage to pixels if normalized, otherwise use absolute
+            x: isNormalized ? p.x * window.innerWidth : p.x,
+            y: isNormalized ? p.y * window.innerHeight : p.y,
+            rotation: p.rotation,
+            zIndex: p.z_index,
+            customText: p.caption ? undefined : "Shared Memory"
+          };
+        });
         setPhotos(mapped);
         if (mapped.length > 0) {
           setMaxZIndex(Math.max(...mapped.map(p => p.zIndex)) + 1);
@@ -151,7 +164,11 @@ function App() {
     const channel = supabase
       .channel(`room:${room}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'photos', filter: `room_id=eq.${room}` }, (payload) => {
+        if (ignore) return;
+
         const p = payload.new as any;
+        const isNormalized = p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1;
+
         const newPhoto: Photo = {
           id: p.id,
           dataUrl: p.data_url,
@@ -160,8 +177,8 @@ function App() {
           isStaticNegative: false,
           isEjecting: false,
           caption: p.caption,
-          x: p.x,
-          y: p.y,
+          x: isNormalized ? p.x * window.innerWidth : p.x,
+          y: isNormalized ? p.y * window.innerHeight : p.y,
           rotation: p.rotation,
           zIndex: p.z_index,
           customText: p.caption ? undefined : "Shared Memory"
@@ -181,6 +198,7 @@ function App() {
       .subscribe();
 
     return () => {
+      ignore = true;
       supabase.removeChannel(channel);
     };
   }, [room, user]);
@@ -391,12 +409,16 @@ function App() {
 
     if (user) {
       // Save to Supabase
+      // Normalize coordinates to 0-1 range
+      const xPercent = x / window.innerWidth;
+      const yPercent = y / window.innerHeight;
+
       const { error } = await supabase.from('photos').insert({
         room_id: room,
         data_url: pendingPhoto.dataUrl,
         caption: pendingPhoto.caption,
-        x: x,
-        y: y,
+        x: xPercent,
+        y: yPercent,
         rotation: rotation,
         z_index: zIndex
       });
