@@ -115,6 +115,12 @@ function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [showPageFlash, setShowPageFlash] = useState(false);
   const [flashBurstPos, setFlashBurstPos] = useState<{ x: number, y: number } | null>(null);
+  const [isDraggingPending, setIsDraggingPending] = useState(false);
+  const [mode, setMode] = useState<'photo' | 'video'>('photo');
+  const [isRecording, setIsRecording] = useState(false);
+  const [warningMsg, setWarningMsg] = useState<string | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
 
   const playPrinting = usePrintingSound();
   const playReload = useReloadSound();
@@ -158,7 +164,8 @@ function App() {
             y: isNormalized ? p.y * window.innerHeight : p.y,
             rotation: p.rotation,
             zIndex: p.z_index,
-            customText: p.caption ? undefined : "Shared Memory"
+            customText: p.caption ? undefined : "Shared Memory",
+            mediaType: p.data_url.startsWith('data:video') ? 'video' : 'photo'
           };
         });
         setPhotos(mapped);
@@ -191,7 +198,8 @@ function App() {
           y: isNormalized ? p.y * window.innerHeight : p.y,
           rotation: p.rotation,
           zIndex: p.z_index,
-          customText: p.caption ? undefined : "Shared Memory"
+          customText: p.caption ? undefined : "Shared Memory",
+          mediaType: p.data_url.startsWith('data:video') ? 'video' : 'photo'
         };
 
         setPhotos(prev => {
@@ -333,21 +341,123 @@ function App() {
     }
   };
 
+  const ejectMedia = (url: string, type: 'photo' | 'video') => {
+    playPrinting();
+
+    let spawnX = 100;
+    let spawnY = 100;
+
+    if (cameraBodyRef.current) {
+      const rect = cameraBodyRef.current.getBoundingClientRect();
+      const halfWidth = window.innerWidth < 640 ? 88 : 104;
+      spawnX = rect.left + (rect.width / 2) - halfWidth;
+      spawnY = rect.bottom - 60;
+    }
+
+    const newPhoto: Photo = {
+      id: crypto.randomUUID(),
+      dataUrl: url,
+      timestamp: Date.now(),
+      isDeveloping: false,
+      isStaticNegative: type === 'photo',
+      isEjecting: true,
+      // If AI is OFF, use the custom text as the main caption so it persists
+      caption: isAiEnabled ? undefined : customText,
+      customText: undefined,
+      x: spawnX,
+      y: spawnY,
+      rotation: 0,
+      zIndex: 1,
+      mediaType: type
+    };
+
+    setPendingPhoto(newPhoto);
+
+    if (isAiEnabled && type === 'photo') {
+      generateCaption(url).then(caption => {
+        setPendingPhoto(curr => {
+          if (curr && curr.id === newPhoto.id) {
+            return { ...curr, caption };
+          }
+          return curr;
+        });
+      });
+    }
+
+    setTimeout(() => {
+      setState(prev => ({ ...prev, isCapturing: false }));
+      setIsRecording(false);
+    }, 500);
+
+    setTimeout(() => {
+      setPendingPhoto(curr => curr ? { ...curr, isEjecting: false } : null);
+    }, 3000);
+  };
+
   const takePhoto = async () => {
     if (pendingPhoto) return;
+
+    // Validate Room ID
+    if (!room.trim()) {
+      setWarningMsg("MISSING ID");
+      setIsSettingsOpen(true);
+      setTimeout(() => setWarningMsg(null), 2000);
+      return;
+    }
+
     if (shotsLeft <= 0 || isReloading || !state.isPoweredOn) return;
 
-    if (!videoRef.current || !canvasRef.current || state.isCapturing) return;
+    if (!videoRef.current || !canvasRef.current || state.isCapturing || isRecording) return;
 
     const video = videoRef.current;
     if (video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) return;
 
-    // Broadcast Flash Event
-    if (channelRef.current) {
+    // Broadcast Flash Event (only for photo?)
+    if (mode === 'photo' && channelRef.current) {
       channelRef.current.send({
         type: 'broadcast',
         event: 'FLASH'
       });
+    }
+
+    if (mode === 'video') {
+      const stream = state.stream;
+      if (!stream) return;
+
+      setIsRecording(true);
+      playShutter(); // Start sound
+
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: 'video/webm;codecs=vp8',
+        videoBitsPerSecond: 1000000 // 1 Mbps
+      });
+
+      mediaRecorderRef.current = mediaRecorder;
+      chunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: 'video/webm' });
+        // Convert to Base64 Data URL for storage/compatibility
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const base64data = reader.result as string;
+          ejectMedia(base64data, 'video');
+        };
+        reader.readAsDataURL(blob);
+      };
+
+      mediaRecorder.start();
+
+      setTimeout(() => {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+          mediaRecorderRef.current.stop();
+        }
+      }, 3000);
+      return;
     }
 
     playShutter();
@@ -395,53 +505,7 @@ function App() {
       }
 
       setTimeout(() => {
-        playPrinting();
-
-        let spawnX = 100;
-        let spawnY = 100;
-
-        if (cameraBodyRef.current) {
-          const rect = cameraBodyRef.current.getBoundingClientRect();
-          const halfWidth = window.innerWidth < 640 ? 88 : 104;
-          spawnX = rect.left + (rect.width / 2) - halfWidth;
-          spawnY = rect.bottom - 60;
-        }
-
-        const newPhoto: Photo = {
-          id: crypto.randomUUID(),
-          dataUrl: dataUrl,
-          timestamp: Date.now(),
-          isDeveloping: false,
-          isStaticNegative: true,
-          isEjecting: true,
-          customText: isAiEnabled ? undefined : customText,
-          x: spawnX,
-          y: spawnY,
-          rotation: 0,
-          zIndex: 1
-        };
-
-        setPendingPhoto(newPhoto);
-
-        if (isAiEnabled) {
-          generateCaption(dataUrl).then(caption => {
-            setPendingPhoto(curr => {
-              if (curr && curr.id === newPhoto.id) {
-                return { ...curr, caption };
-              }
-              return curr;
-            });
-          });
-        }
-
-        setTimeout(() => {
-          setState(prev => ({ ...prev, isCapturing: false }));
-        }, 500);
-
-        setTimeout(() => {
-          setPendingPhoto(curr => curr ? { ...curr, isEjecting: false } : null);
-        }, 3000);
-
+        ejectMedia(dataUrl, 'photo');
       }, 4000);
     }
   };
@@ -503,7 +567,7 @@ function App() {
   };
 
   return (
-    <div className="relative h-screen w-full bg-stone-900 overflow-hidden font-sans selection:bg-accent selection:text-white touch-none">
+    <div className="relative h-[100dvh] w-full bg-stone-900 overflow-hidden font-sans selection:bg-accent selection:text-white touch-none">
       <AuthModal
         isOpen={isAuthOpen}
         onClose={() => setIsAuthOpen(false)}
@@ -550,7 +614,8 @@ function App() {
       </div>
 
       {/* LAYER 2: Pending Photo (Behind Camera initially, then on top) */}
-      <div className={`absolute inset-0 w-full h-full pointer-events-none overflow-hidden ${pendingPhoto?.isEjecting ? 'z-10' : 'z-50'}`}>
+      {/* It stays behind (z-10) until the user starts dragging it (z-50) */}
+      <div className={`absolute inset-0 w-full h-full pointer-events-none overflow-hidden ${isDraggingPending ? 'z-50' : 'z-10'}`}>
         {pendingPhoto && <div
           className={`absolute ${pendingPhoto.isEjecting ? 'overflow-hidden' : ''} pointer-events-auto`}
           style={{
@@ -564,7 +629,9 @@ function App() {
           <Polaroid
             photo={{ ...pendingPhoto, x: 20, y: 0 }}
             onFocus={() => bringToFront(pendingPhoto.id)}
+            onDragStart={() => setIsDraggingPending(true)}
             onDragEnd={(id, x, y) => {
+              setIsDraggingPending(false);
               handlePendingDragEnd(id, (pendingPhoto.x - 20) + x, pendingPhoto.y + y);
             }}
             className={pendingPhoto.isEjecting ? "animate-eject" : ""}
@@ -665,6 +732,14 @@ function App() {
                 </div>
               </div>
               <div className="absolute inset-0 rounded-full shadow-[inset_0_0_40px_rgba(0,0,0,0.8)] pointer-events-none mix-blend-overlay" />
+
+              {/* Recording Indicator */}
+              {isRecording && (
+                <div className="absolute top-[15%] right-[15%] z-30 flex items-center gap-2 pointer-events-none">
+                  <div className="w-2 h-2 bg-red-600 rounded-full animate-pulse shadow-[0_0_8px_rgba(220,38,38,0.8)]" />
+                  <span className="text-red-600 font-mono text-[10px] font-bold tracking-widest drop-shadow-md">REC</span>
+                </div>
+              )}
             </div>
 
             <button
@@ -707,6 +782,12 @@ function App() {
                 <div className="text-white font-mono text-sm animate-pulse">RELOADING...</div>
               </div>
             )}
+
+            {warningMsg && (
+              <div className="absolute inset-0 flex items-center justify-center z-50 bg-red-500/20 backdrop-blur-[1px] rounded-[3rem]">
+                <div className="text-white font-mono text-xs font-bold animate-bounce tracking-widest px-4 text-center">{warningMsg}</div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -734,7 +815,7 @@ function App() {
         {/* Cursor Overlay */}
         <CursorOverlay cursors={cursors} />
 
-        <div className="flex justify-between items-end pointer-events-auto" onMouseMove={handleMouseMove}>
+        <div className="absolute top-4 right-4 flex flex-col items-end gap-2 pointer-events-auto lg:static lg:w-full lg:flex-row lg:justify-between lg:items-end lg:gap-0" onMouseMove={handleMouseMove}>
           <button
             onClick={() => setIsSettingsOpen(!isSettingsOpen)}
             className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-md border border-white/10 text-white/70 hover:text-white hover:bg-white/10 flex items-center justify-center transition-all"
@@ -742,52 +823,71 @@ function App() {
             <i className="fas fa-cog" />
           </button>
 
-          <div className={`${isSettingsOpen ? 'flex' : 'hidden'} lg:flex bg-black/40 backdrop-blur-md p-2 rounded-xl border border-white/10 flex-col lg:flex-row items-end lg:items-center gap-2 lg:gap-4 shadow-xl`}>
+          <div className={`${isSettingsOpen ? 'flex' : 'hidden'} lg:flex flex-col lg:flex-row bg-[#151515] lg:bg-black/40 backdrop-blur-xl p-5 lg:p-2 rounded-2xl lg:rounded-xl border border-white/10 gap-5 lg:gap-4 shadow-2xl w-[280px] lg:w-auto mt-2 lg:mt-0 origin-top-right transition-all`}>
 
+            {/* Login Button */}
             <button
               onClick={() => user ? supabase.auth.signOut() : setIsAuthOpen(true)}
-              className="px-3 py-1 bg-white/10 hover:bg-white/20 rounded text-white/80 font-mono text-xs flex items-center gap-2 transition-colors"
+              className="w-full lg:w-auto px-4 py-3 lg:py-1 bg-white/5 lg:bg-white/10 hover:bg-white/10 lg:hover:bg-white/20 rounded-xl lg:rounded text-white/90 font-mono text-xs flex items-center justify-center gap-3 lg:gap-2 transition-all border border-white/5 lg:border-transparent"
             >
               <i className={`fas ${user ? 'fa-sign-out-alt' : 'fa-user'}`} />
-              {user ? 'Logout' : 'Login'}
+              {user ? 'LOGOUT' : 'LOGIN'}
             </button>
 
-            <div className="flex gap-2 lg:gap-4">
+            {/* Switches Group */}
+            <div className="flex items-center justify-between px-4 py-3 lg:p-0 bg-white/5 lg:bg-transparent rounded-xl lg:rounded-none border border-white/5 lg:border-none lg:gap-4">
               <RetroSwitch isOn={state.isFlashOn} onToggle={() => setState(prev => ({ ...prev, isFlashOn: !prev.isFlashOn }))} label="FLASH" />
+              <div className="w-px h-8 bg-white/10 lg:hidden" />
               <RetroSwitch isOn={isAiEnabled} onToggle={() => setIsAiEnabled(!isAiEnabled)} label="AI" />
+              <div className="w-px h-8 bg-white/10 lg:hidden" />
+              <RetroSwitch
+                isOn={mode === 'video'}
+                onToggle={() => setMode(prev => prev === 'photo' ? 'video' : 'photo')}
+                label={mode === 'video' ? "VIDEO" : "PHOTO"}
+                onLabel=""
+                offLabel=""
+              />
             </div>
-            <div className="flex items-center gap-2">
-              <div className="flex items-center border-l border-white/10 pl-2 ml-1 lg:pl-3">
-                <span className="text-white/50 font-mono text-xs mr-2 hidden lg:inline">ROOM:</span>
+
+            {/* Inputs Group */}
+            <div className="flex flex-col lg:flex-row gap-4 lg:gap-2 lg:items-center">
+
+              {/* Room Input */}
+              <div className="flex items-center justify-between lg:justify-start gap-3 px-2 lg:px-0 lg:border-l lg:border-white/10 lg:pl-3">
+                <span className="text-white/40 font-mono text-[10px] tracking-widest">ROOM</span>
                 <input
                   type="text"
                   value={room}
                   onChange={(e) => setRoom(e.target.value)}
-                  placeholder="global"
-                  className="bg-transparent border-b border-white/30 text-white font-mono text-xs lg:text-sm px-1 py-1 outline-none focus:border-accent w-20 lg:w-24 placeholder:text-white/30 transition-opacity text-center uppercase"
+                  placeholder="ID"
+                  className="bg-transparent border-b border-white/20 text-white font-mono text-sm lg:text-xs px-2 py-1 outline-none focus:border-accent w-28 lg:w-20 text-right lg:text-center uppercase placeholder:text-white/20"
                   maxLength={10}
                 />
               </div>
 
-              <div className="flex items-center border-l border-white/10 pl-2 ml-1 lg:pl-3">
+              {/* Custom Text Input */}
+              <div className="flex items-center justify-between lg:justify-start gap-3 px-2 lg:px-0 lg:border-l lg:border-white/10 lg:pl-3">
+                <span className="text-white/40 font-mono text-[10px] tracking-widest">TEXT</span>
                 <input
                   type="text"
                   value={customText}
                   onChange={(e) => setCustomText(e.target.value)}
                   disabled={isAiEnabled}
-                  placeholder={isAiEnabled ? "AI Enabled" : "Enter text..."}
-                  className={`bg-transparent border-b border-white/30 text-white font-mono text-xs lg:text-sm px-1 py-1 outline-none focus:border-accent w-24 lg:w-32 placeholder:text-white/30 transition-opacity ${isAiEnabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  placeholder={isAiEnabled ? "AI AUTO" : "CUSTOM..."}
+                  className={`bg-transparent border-b border-white/20 text-white font-mono text-sm lg:text-xs px-2 py-1 outline-none focus:border-accent w-36 lg:w-32 text-right lg:text-left placeholder:text-white/20 transition-opacity ${isAiEnabled ? 'opacity-50 cursor-not-allowed' : ''}`}
                   maxLength={20}
                 />
               </div>
-              <button
-                onClick={() => setPhotos([])}
-                className="ml-1 px-2 py-1 text-white/80 hover:text-accent transition-colors font-fredericka text-base lg:text-lg tracking-widest"
-                title="Reset Photos"
-              >
-                Reset
-              </button>
             </div>
+
+            {/* Reset Button */}
+            <button
+              onClick={() => setPhotos([])}
+              className="w-full lg:w-auto px-4 py-3 lg:py-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 border border-red-500/20 rounded-xl lg:rounded transition-colors font-fredericka text-sm lg:text-base tracking-widest uppercase"
+              title="Reset Photos"
+            >
+              Reset
+            </button>
           </div>
         </div>
       </div>

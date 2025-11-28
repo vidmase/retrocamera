@@ -13,6 +13,7 @@ export interface Photo {
   rotation: number;
   zIndex: number;
   backNote?: string;
+  mediaType?: 'photo' | 'video';
 }
 
 export interface CameraState {

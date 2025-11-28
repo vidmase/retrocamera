@@ -5,16 +5,18 @@ interface PolaroidProps {
   photo: Photo;
   onFocus: (id: string) => void;
   onDragEnd?: (id: string, x: number, y: number) => void;
+  onDragStart?: () => void;
   className?: string;
 }
 
-const Polaroid: React.FC<PolaroidProps> = ({ photo, onFocus, onDragEnd, className = '' }) => {
+const Polaroid: React.FC<PolaroidProps> = ({ photo, onFocus, onDragEnd, onDragStart, className = '' }) => {
   const dateStr = new Date(photo.timestamp).toLocaleString(undefined, {
     year: '2-digit',
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
-    minute: '2-digit'
+    minute: '2-digit',
+    hour12: false
   });
 
   // We initialize state from props, but we don't sync it back to props automatically 
@@ -43,6 +45,7 @@ const Polaroid: React.FC<PolaroidProps> = ({ photo, onFocus, onDragEnd, classNam
 
     onFocus(photo.id);
     setIsDragging(true);
+    if (onDragStart) onDragStart();
     hasMoved.current = false;
     dragStartPos.current = { x: clientX, y: clientY };
 
@@ -162,13 +165,24 @@ const Polaroid: React.FC<PolaroidProps> = ({ photo, onFocus, onDragEnd, classNam
 
             {/* Image Area */}
             <div className="aspect-square bg-black overflow-hidden relative mb-3 border border-gray-100 pointer-events-none shrink-0">
-              <img
-                src={photo.dataUrl}
-                alt="Memory"
-                className={`w-full h-full object-cover ${photo.isDeveloping ? 'animate-develop-negative' :
-                  photo.isStaticNegative ? 'invert grayscale contrast-[1.2]' : ''
-                  }`}
-              />
+              {photo.mediaType === 'video' ? (
+                <video
+                  src={photo.dataUrl}
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <img
+                  src={photo.dataUrl}
+                  alt="Memory"
+                  className={`w-full h-full object-cover ${photo.isDeveloping ? 'animate-develop-negative' :
+                    photo.isStaticNegative ? 'invert grayscale contrast-[1.2]' : ''
+                    }`}
+                />
+              )}
               <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/dust.png')] opacity-30 mix-blend-overlay" />
             </div>
 
