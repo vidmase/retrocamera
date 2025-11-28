@@ -791,7 +791,7 @@ function App() {
           </div>
         </div>
 
-        <div className="w-full lg:w-[60%] h-[45%] lg:h-full relative pointer-events-auto">
+        <div className="w-full lg:w-[60%] h-[45%] lg:h-full relative pointer-events-none">
           {/* Gallery Zone - Photos moved to global layer */}
         </div>
       </div>
