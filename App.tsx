@@ -76,7 +76,7 @@ function App() {
   const [isAuthOpen, setIsAuthOpen] = useState(false);
 
   // Collaboration State
-  const [room, setRoom] = useState("global");
+  const [room, setRoom] = useState("");
   const [cursors, setCursors] = useState<Record<string, any>>({});
   const channelRef = useRef<any>(null);
 

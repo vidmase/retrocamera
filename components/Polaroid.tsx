@@ -59,6 +59,7 @@ const Polaroid: React.FC<PolaroidProps> = ({ photo, onFocus, onDragEnd, onDragSt
 
     // Define listeners
     const handleWindowMove = (e: MouseEvent | TouchEvent) => {
+      if (e.cancelable) e.preventDefault();
       const cx = 'touches' in e ? e.touches[0].clientX : (e as MouseEvent).clientX;
       const cy = 'touches' in e ? e.touches[0].clientY : (e as MouseEvent).clientY;
 
@@ -125,6 +126,10 @@ const Polaroid: React.FC<PolaroidProps> = ({ photo, onFocus, onDragEnd, onDragSt
   };
 
   const handleTouchStart = (e: React.TouchEvent) => {
+    // Prevent default to stop scrolling and ensure touchmove fires
+    // Check if cancelable to avoid errors in some scenarios
+    if (e.cancelable) e.preventDefault();
+    e.stopPropagation();
     handleStart(e.touches[0].clientX, e.touches[0].clientY, e.target);
   };
 
