@@ -75,6 +75,7 @@ function App() {
   const [user, setUser] = useState<any>(null);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [showLoginPrompt, setShowLoginPrompt] = useState(false);
 
   // Collaboration State
   const [room, setRoom] = useState("");
@@ -406,6 +407,12 @@ function App() {
       return;
     }
 
+    // Check if user is logged in
+    if (!user) {
+      setShowLoginPrompt(true);
+      return;
+    }
+
     if (shotsLeft <= 0 || isReloading || !state.isPoweredOn) return;
 
     if (!videoRef.current || !canvasRef.current || state.isCapturing || isRecording) return;
@@ -617,6 +624,58 @@ function App() {
                 className="flex-1 bg-gray-800 hover:bg-accent text-white font-mono uppercase tracking-widest py-3 px-4 transition-all transform hover:scale-105 active:scale-95 shadow-lg border-2 border-gray-900"
               >
                 Stay
+              </button>
+            </div>
+
+            {/* Decorative tape */}
+            <div className="absolute -top-4 left-1/2 -translate-x-1/2 w-24 h-6 bg-yellow-200/80 border border-yellow-300 transform -rotate-1 pointer-events-none shadow-md" />
+            <div className="absolute -bottom-4 right-1/4 w-16 h-6 bg-yellow-200/80 border border-yellow-300 transform rotate-1 pointer-events-none shadow-md" />
+          </div>
+        </div>
+      )}
+
+      {/* Login Prompt Modal */}
+      {showLoginPrompt && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-md p-4 animate-fade-in">
+          <div className="bg-[#f0f0f0] w-full max-w-sm p-8 rounded-sm shadow-2xl relative border-4 border-white outline outline-2 outline-gray-400 transform animate-scale-in">
+            {/* Polaroid-style corners */}
+            <div className="absolute -top-2 -left-2 w-4 h-4 bg-white border-2 border-gray-400 rotate-45" />
+            <div className="absolute -top-2 -right-2 w-4 h-4 bg-white border-2 border-gray-400 rotate-45" />
+            <div className="absolute -bottom-2 -left-2 w-4 h-4 bg-white border-2 border-gray-400 rotate-45" />
+            <div className="absolute -bottom-2 -right-2 w-4 h-4 bg-white border-2 border-gray-400 rotate-45" />
+
+            {/* Camera Icon */}
+            <div className="text-center mb-4">
+              <i className="fas fa-camera-retro text-5xl text-accent drop-shadow-lg animate-pulse" />
+            </div>
+
+            {/* Message */}
+            <div className="text-center mb-6">
+              <h2 className="font-fredericka text-2xl text-gray-800 tracking-widest mb-2">
+                Hold On! 📸
+              </h2>
+              <p className="font-mono text-sm text-gray-600 leading-relaxed">
+                You need to log in<br />
+                to capture memories!
+              </p>
+            </div>
+
+            {/* Buttons */}
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowLoginPrompt(false);
+                  setIsAuthOpen(true);
+                }}
+                className="flex-1 bg-accent hover:bg-accent/90 text-white font-mono uppercase tracking-widest py-3 px-4 transition-all transform hover:scale-105 active:scale-95 shadow-lg border-2 border-accent/80"
+              >
+                Login
+              </button>
+              <button
+                onClick={() => setShowLoginPrompt(false)}
+                className="flex-1 bg-gray-800 hover:bg-gray-700 text-white font-mono uppercase tracking-widest py-3 px-4 transition-all transform hover:scale-105 active:scale-95 shadow-lg border-2 border-gray-900"
+              >
+                Cancel
               </button>
             </div>
 
