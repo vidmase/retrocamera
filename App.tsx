@@ -74,6 +74,7 @@ function App() {
   // Auth State
   const [user, setUser] = useState<any>(null);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   // Collaboration State
   const [room, setRoom] = useState("");
@@ -574,6 +575,58 @@ function App() {
         onLoginSuccess={() => setIsAuthOpen(false)}
       />
 
+      {/* Logout Confirmation Modal */}
+      {showLogoutConfirm && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-md p-4 animate-fade-in">
+          <div className="bg-[#f0f0f0] w-full max-w-sm p-8 rounded-sm shadow-2xl relative border-4 border-white outline outline-2 outline-gray-400 transform animate-scale-in">
+            {/* Polaroid-style corners */}
+            <div className="absolute -top-2 -left-2 w-4 h-4 bg-white border-2 border-gray-400 rotate-45" />
+            <div className="absolute -top-2 -right-2 w-4 h-4 bg-white border-2 border-gray-400 rotate-45" />
+            <div className="absolute -bottom-2 -left-2 w-4 h-4 bg-white border-2 border-gray-400 rotate-45" />
+            <div className="absolute -bottom-2 -right-2 w-4 h-4 bg-white border-2 border-gray-400 rotate-45" />
+
+            {/* Camera Icon */}
+            <div className="text-center mb-4">
+              <i className="fas fa-camera-retro text-5xl text-accent drop-shadow-lg animate-pulse" />
+            </div>
+
+            {/* Message */}
+            <div className="text-center mb-6">
+              <h2 className="font-fredericka text-2xl text-gray-800 tracking-widest mb-2">
+                Wait! 📸
+              </h2>
+              <p className="font-mono text-sm text-gray-600 leading-relaxed">
+                Sure you want to leave?<br />
+                The memories will miss you!
+              </p>
+            </div>
+
+            {/* Buttons */}
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowLogoutConfirm(false);
+                  supabase.auth.signOut();
+                }}
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white font-mono uppercase tracking-widest py-3 px-4 transition-all transform hover:scale-105 active:scale-95 shadow-lg border-2 border-red-700"
+              >
+                Yes, Leave
+              </button>
+              <button
+                onClick={() => setShowLogoutConfirm(false)}
+                className="flex-1 bg-gray-800 hover:bg-accent text-white font-mono uppercase tracking-widest py-3 px-4 transition-all transform hover:scale-105 active:scale-95 shadow-lg border-2 border-gray-900"
+              >
+                Stay
+              </button>
+            </div>
+
+            {/* Decorative tape */}
+            <div className="absolute -top-4 left-1/2 -translate-x-1/2 w-24 h-6 bg-yellow-200/80 border border-yellow-300 transform -rotate-1 pointer-events-none shadow-md" />
+            <div className="absolute -bottom-4 right-1/4 w-16 h-6 bg-yellow-200/80 border border-yellow-300 transform rotate-1 pointer-events-none shadow-md" />
+          </div>
+        </div>
+      )}
+
       {/* Flash Burst Effect */}
       {showPageFlash && (
         <div
@@ -827,11 +880,17 @@ function App() {
 
             {/* Login Button */}
             <button
-              onClick={() => user ? supabase.auth.signOut() : setIsAuthOpen(true)}
+              onClick={() => {
+                if (user) {
+                  setShowLogoutConfirm(true);
+                } else {
+                  setIsAuthOpen(true);
+                }
+              }}
               className="w-full lg:w-auto px-4 py-3 lg:py-1 bg-white/5 lg:bg-white/10 hover:bg-white/10 lg:hover:bg-white/20 rounded-xl lg:rounded text-white/90 font-mono text-xs flex items-center justify-center gap-3 lg:gap-2 transition-all border border-white/5 lg:border-transparent"
             >
               <i className={`fas ${user ? 'fa-sign-out-alt' : 'fa-user'}`} />
-              {user ? 'LOGOUT' : 'LOGIN'}
+              {user ? (user.email?.split('@')[0] || 'LOGOUT') : 'LOGIN'}
             </button>
 
             {/* Switches Group */}
