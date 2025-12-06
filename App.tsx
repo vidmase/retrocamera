@@ -667,7 +667,7 @@ function App() {
             </div>
           </div>
 
-          <div ref={cameraBodyRef} className="relative w-[85vw] max-w-[360px] select-none pointer-events-auto mt-2 lg:mt-0">
+          <div ref={cameraBodyRef} className="relative w-[85vw] max-w-[360px] select-none pointer-events-auto mt-2 lg:mt-0" style={{ transform: 'translateX(-2%)' }}>
             <img
               src="https://www.bubbbly.com/assets/retro-camera.webp"
               alt="Retro Camera"
