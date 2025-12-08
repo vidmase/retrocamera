@@ -1,3 +1,24 @@
+-- Create the albums table
+create table if not exists albums (
+  id uuid default gen_random_uuid() primary key,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  user_id uuid references auth.users not null default auth.uid(),
+  room_id text not null default 'global',
+  name text not null,
+  cover_color text not null default '#8B4513',
+  cover_pattern text not null default 'leather',
+  cover_photo_url text
+);
+
+-- Enable Row Level Security for albums
+alter table albums enable row level security;
+
+-- Album policies
+create policy "Anyone can view albums in their room" on albums for select using (true);
+create policy "Authenticated users can create albums" on albums for insert with check (auth.role() = 'authenticated');
+create policy "Users can update their own albums" on albums for update using (auth.uid() = user_id);
+create policy "Users can delete their own albums" on albums for delete using (auth.uid() = user_id);
+
 -- Create the photos table
 create table if not exists photos (
   id uuid default gen_random_uuid() primary key,
@@ -9,7 +30,8 @@ create table if not exists photos (
   x float not null,
   y float not null,
   rotation float not null,
-  z_index int not null
+  z_index int not null,
+  album_id uuid references albums(id) on delete set null
 );
 
 -- Enable Realtime for this table

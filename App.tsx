@@ -6,6 +6,10 @@ import { generateCaption } from './services/geminiService';
 import { supabase } from './services/supabaseClient';
 import { AuthModal } from './components/AuthModal';
 import { CursorOverlay } from './components/CursorOverlay';
+import { AlbumDrawer } from './components/AlbumDrawer';
+import { MemoryBoard } from './components/MemoryBoard';
+import { MemoryBoardDropZone } from './components/MemoryBoardDropZone';
+import { LiquidFlowEffect } from './components/LiquidFlowEffect';
 
 // Simple throttle utility
 const throttle = (func: Function, limit: number) => {
@@ -70,6 +74,7 @@ function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const cameraBodyRef = useRef<HTMLDivElement>(null);
+  const memoriesButtonRef = useRef<HTMLButtonElement>(null);
 
   // Auth State
   const [user, setUser] = useState<any>(null);
@@ -78,8 +83,8 @@ function App() {
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
 
   // Collaboration State
-  const [room, setRoom] = useState("");
   const [cursors, setCursors] = useState<Record<string, any>>({});
+  const [sharedPhotos, setSharedPhotos] = useState<Photo[]>([]);
   const channelRef = useRef<any>(null);
 
   // Check Supabase Session
@@ -121,6 +126,11 @@ function App() {
   const [mode, setMode] = useState<'photo' | 'video'>('photo');
   const [isRecording, setIsRecording] = useState(false);
   const [warningMsg, setWarningMsg] = useState<string | null>(null);
+  const [isAlbumDrawerOpen, setIsAlbumDrawerOpen] = useState(false);
+  const [isMemoryBoardOpen, setIsMemoryBoardOpen] = useState(false);
+  const [liquidFlowPhoto, setLiquidFlowPhoto] = useState<Photo | null>(null);
+  const [liquidFlowStart, setLiquidFlowStart] = useState({ x: 0, y: 0 });
+  const [liquidFlowEnd, setLiquidFlowEnd] = useState({ x: 0, y: 0 });
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
@@ -129,29 +139,19 @@ function App() {
   const playShutter = useShutterSound();
 
   // Load & Subscribe to Photos & Broadcasts
+  // Fetch shared photos for the Memory Board
   useEffect(() => {
-    if (!user) {
-      setPhotos([]);
-      return;
-    }
-
     let ignore = false;
 
-    // Clear photos immediately when switching rooms to avoid confusion
-    setPhotos([]);
-    setCursors({});
-
-    // 1. Fetch initial photos
-    const fetchPhotos = async () => {
+    const fetchSharedPhotos = async () => {
       const { data, error } = await supabase
         .from('photos')
-        .select('*')
-        .eq('room_id', room)
+        .select('id, created_at, data_url, caption, x, y, rotation, z_index, album_id, user_id, is_shared')
+        .eq('is_shared', true)
         .order('created_at', { ascending: true })
-        .limit(50);
+        .limit(100);
 
       if (!ignore && data) {
-        // Map DB fields to Photo type
         const mapped: Photo[] = data.map((p: any) => {
           const isNormalized = p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1;
           return {
@@ -167,22 +167,22 @@ function App() {
             rotation: p.rotation,
             zIndex: p.z_index,
             customText: p.caption ? undefined : "Shared Memory",
-            mediaType: p.data_url.startsWith('data:video') ? 'video' : 'photo'
+            mediaType: p.data_url?.startsWith('data:video') ? 'video' : 'photo',
+            albumId: p.album_id,
+            isShared: true,
+            userId: p.user_id
           };
         });
-        setPhotos(mapped);
-        if (mapped.length > 0) {
-          setMaxZIndex(Math.max(...mapped.map(p => p.zIndex)) + 1);
-        }
+        setSharedPhotos(mapped);
       }
     };
 
-    fetchPhotos();
+    fetchSharedPhotos();
 
-    // 2. Subscribe to changes & Broadcasts
+    // Subscribe to new shared photos
     const channel = supabase
-      .channel(`room:${room}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'photos', filter: `room_id=eq.${room}` }, (payload) => {
+      .channel('memory-board')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'photos', filter: 'is_shared=eq.true' }, (payload) => {
         if (ignore) return;
 
         const p = payload.new as any;
@@ -192,7 +192,7 @@ function App() {
           id: p.id,
           dataUrl: p.data_url,
           timestamp: new Date(p.created_at).getTime(),
-          isDeveloping: true,
+          isDeveloping: false,
           isStaticNegative: false,
           isEjecting: false,
           caption: p.caption,
@@ -201,23 +201,23 @@ function App() {
           rotation: p.rotation,
           zIndex: p.z_index,
           customText: p.caption ? undefined : "Shared Memory",
-          mediaType: p.data_url.startsWith('data:video') ? 'video' : 'photo'
+          mediaType: p.data_url?.startsWith('data:video') ? 'video' : 'photo',
+          albumId: p.album_id,
+          isShared: true,
+          userId: p.user_id
         };
 
-        setPhotos(prev => {
+        setSharedPhotos(prev => {
           if (prev.find(existing => existing.id === newPhoto.id)) return prev;
           return [...prev, newPhoto];
         });
-
-        setTimeout(() => {
-          setPhotos(prev => prev.map(ph => ph.id === newPhoto.id ? { ...ph, isDeveloping: false } : ph));
-        }, 5200);
       })
       .on('broadcast', { event: 'FLASH' }, () => {
         setShowPageFlash(true);
         setTimeout(() => setShowPageFlash(false), 400);
       })
       .on('broadcast', { event: 'CURSOR' }, (payload) => {
+        if (!user) return;
         const { userId, x, y, color } = payload.payload;
         if (userId === user.id) return;
 
@@ -235,7 +235,7 @@ function App() {
       supabase.removeChannel(channel);
       channelRef.current = null;
     };
-  }, [room, user]);
+  }, [user]);
 
   // Broadcast Mouse Movement
   const handleMouseMove = useCallback(throttle((e: React.MouseEvent) => {
@@ -262,7 +262,7 @@ function App() {
         const now = Date.now();
         const next = { ...prev };
         let changed = false;
-        Object.entries(next).forEach(([id, cursor]) => {
+        Object.entries(next).forEach(([id, cursor]: [string, any]) => {
           if (now - cursor.lastUpdate > 2000) {
             delete next[id];
             changed = true;
@@ -399,14 +399,6 @@ function App() {
   const takePhoto = async () => {
     if (pendingPhoto) return;
 
-    // Validate Room ID
-    if (!room.trim()) {
-      setWarningMsg("MISSING ID");
-      setIsSettingsOpen(true);
-      setTimeout(() => setWarningMsg(null), 2000);
-      return;
-    }
-
     // Check if user is logged in
     if (!user) {
       setShowLoginPrompt(true);
@@ -524,40 +516,22 @@ function App() {
     const rotation = (Math.random() * 10 - 5);
     const zIndex = maxZIndex + 1;
 
-    if (user) {
-      const xPercent = x / window.innerWidth;
-      const yPercent = y / window.innerHeight;
-
-      const { error } = await supabase.from('photos').insert({
-        room_id: room,
-        data_url: pendingPhoto.dataUrl,
-        caption: pendingPhoto.caption,
-        x: xPercent,
-        y: yPercent,
-        rotation: rotation,
-        z_index: zIndex
-      });
-
-      if (error) {
-        console.error("Error saving photo:", error);
-        alert("Failed to save photo to the cloud!");
-      }
-    } else {
-      const finalPhoto = {
-        ...pendingPhoto,
-        x: x,
-        y: y,
-        isEjecting: false,
-        isDeveloping: true,
-        isStaticNegative: false,
-        rotation: rotation,
-        zIndex: zIndex
-      };
-      setPhotos(prev => [...prev, finalPhoto]);
-      setTimeout(() => {
-        setPhotos(prev => prev.map(p => p.id === id ? { ...p, isDeveloping: false } : p));
-      }, 5200);
-    }
+    // Save photo locally (not to Supabase - user can share to Memory Board later)
+    const finalPhoto: Photo = {
+      ...pendingPhoto,
+      x: x,
+      y: y,
+      isEjecting: false,
+      isDeveloping: true,
+      isStaticNegative: false,
+      rotation: rotation,
+      zIndex: zIndex,
+      isShared: false
+    };
+    setPhotos(prev => [...prev, finalPhoto]);
+    setTimeout(() => {
+      setPhotos(prev => prev.map(p => p.id === id ? { ...p, isDeveloping: false } : p));
+    }, 5200);
 
     setMaxZIndex(prev => prev + 1);
     setPendingPhoto(null);
@@ -574,12 +548,121 @@ function App() {
     }, 2000);
   };
 
+  const handlePhotoAddedToAlbum = (photoId: string, albumId: string) => {
+    setPhotos(prev => prev.map(p =>
+      p.id === photoId ? { ...p, albumId } : p
+    ));
+  };
+
+  const handleShareToMemoryBoard = async (photo: Photo, dropPosition?: { x: number; y: number }) => {
+    if (!user) {
+      setShowLoginPrompt(true);
+      return;
+    }
+
+    // Check if already shared
+    if (photo.isShared) return;
+
+    // Calculate start position (from photo's current position or drop position)
+    const startX = dropPosition?.x ?? (photo.x + 64); // Center of polaroid
+    const startY = dropPosition?.y ?? (photo.y + 80);
+    
+    // End position - target the Memories button
+    let endX = window.innerWidth - 200;
+    let endY = window.innerHeight - 50;
+    
+    if (memoriesButtonRef.current) {
+      const rect = memoriesButtonRef.current.getBoundingClientRect();
+      endX = rect.left + rect.width / 2;
+      endY = rect.top + rect.height / 2;
+    }
+
+    // Trigger liquid flow effect
+    setLiquidFlowStart({ x: startX, y: startY });
+    setLiquidFlowEnd({ x: endX, y: endY });
+    setLiquidFlowPhoto(photo);
+
+    const rotation = (Math.random() * 10 - 5);
+    const zIndex = maxZIndex + 1;
+    const x = 0.1 + Math.random() * 0.8;
+    const y = 0.1 + Math.random() * 0.8;
+
+    // Save to Supabase as shared
+    const { error } = await supabase.from('photos').insert({
+      user_id: user.id,
+      data_url: photo.dataUrl,
+      caption: photo.caption,
+      x: x,
+      y: y,
+      rotation: rotation,
+      z_index: zIndex,
+      is_shared: true
+    });
+
+    if (!error) {
+      // Mark local photo as shared
+      setPhotos(prev => prev.map(p => 
+        p.id === photo.id ? { ...p, isShared: true } : p
+      ));
+      setMaxZIndex(prev => prev + 1);
+    } else {
+      console.error('Error sharing photo:', error);
+    }
+  };
+
+  const handleOpenMemoryBoard = () => {
+    setIsMemoryBoardOpen(true);
+  };
+
   return (
     <div className="relative h-[100dvh] w-full bg-stone-900 overflow-hidden font-sans selection:bg-accent selection:text-white touch-none">
       <AuthModal
         isOpen={isAuthOpen}
         onClose={() => setIsAuthOpen(false)}
         onLoginSuccess={() => setIsAuthOpen(false)}
+      />
+
+      {/* Album Drawer */}
+      <AlbumDrawer
+        isOpen={isAlbumDrawerOpen}
+        onClose={() => setIsAlbumDrawerOpen(false)}
+        user={user}
+        photos={photos}
+        onPhotoAddedToAlbum={handlePhotoAddedToAlbum}
+      />
+
+      {/* Photo Pool */}
+      {/* Memory Board */}
+      <MemoryBoard
+        isOpen={isMemoryBoardOpen}
+        onClose={() => setIsMemoryBoardOpen(false)}
+        sharedPhotos={sharedPhotos}
+        onPhotoDrop={handleShareToMemoryBoard}
+        onPhotoClick={(photo) => {
+          setIsMemoryBoardOpen(false);
+        }}
+      />
+
+      {/* Memory Board Drop Zone (Floating) */}
+      <MemoryBoardDropZone
+        isVisible={!isMemoryBoardOpen && photos.filter(p => !p.isShared).length > 0}
+        onDrop={(photo, position) => handleShareToMemoryBoard(photo, position)}
+        onOpenBoard={() => setIsMemoryBoardOpen(true)}
+        sharedCount={sharedPhotos.length}
+      />
+
+      {/* Liquid Flow Effect */}
+      <LiquidFlowEffect
+        photo={liquidFlowPhoto}
+        startPosition={liquidFlowStart}
+        endPosition={liquidFlowEnd}
+        onComplete={() => {
+          // Remove the photo from local gallery after effect completes
+          if (liquidFlowPhoto) {
+            setPhotos(prev => prev.filter(p => p.id !== liquidFlowPhoto.id));
+          }
+          setLiquidFlowPhoto(null);
+        }}
       />
 
       {/* Logout Confirmation Modal */}
@@ -910,12 +993,19 @@ function App() {
 
       {/* LAYER 3.5: Saved Photos (Global Layer) */}
       <div className="absolute inset-0 z-30 w-full h-full pointer-events-none overflow-hidden">
-        {photos.map((photo) => (
-          <div key={photo.id} className="pointer-events-auto">
+        {photos.filter(photo => !photo.isShared || photo.id === liquidFlowPhoto?.id).map((photo) => (
+          <div 
+            key={photo.id} 
+            className={`pointer-events-auto transition-opacity duration-300 ${
+              photo.isShared && photo.id !== liquidFlowPhoto?.id ? 'opacity-0 pointer-events-none' : ''
+            }`}
+          >
             <Polaroid
               photo={photo}
               onFocus={() => bringToFront(photo.id)}
               onDragEnd={() => { }}
+              onShare={handleShareToMemoryBoard}
+              enableHtmlDrag={!photo.isShared}
             />
           </div>
         ))}
@@ -967,36 +1057,60 @@ function App() {
               />
             </div>
 
-            {/* Inputs Group */}
-            <div className="flex flex-col lg:flex-row gap-4 lg:gap-2 lg:items-center">
-
-              {/* Room Input */}
-              <div className="flex items-center justify-between lg:justify-start gap-3 px-2 lg:px-0 lg:border-l lg:border-white/10 lg:pl-3">
-                <span className="text-white/40 font-mono text-[10px] tracking-widest">ROOM</span>
-                <input
-                  type="text"
-                  value={room}
-                  onChange={(e) => setRoom(e.target.value)}
-                  placeholder="ID"
-                  className="bg-transparent border-b border-white/20 text-white font-mono text-sm lg:text-xs px-2 py-1 outline-none focus:border-accent w-28 lg:w-20 text-right lg:text-center uppercase placeholder:text-white/20"
-                  maxLength={10}
-                />
-              </div>
-
-              {/* Custom Text Input */}
-              <div className="flex items-center justify-between lg:justify-start gap-3 px-2 lg:px-0 lg:border-l lg:border-white/10 lg:pl-3">
-                <span className="text-white/40 font-mono text-[10px] tracking-widest">TEXT</span>
-                <input
-                  type="text"
-                  value={customText}
-                  onChange={(e) => setCustomText(e.target.value)}
-                  disabled={isAiEnabled}
-                  placeholder={isAiEnabled ? "AI AUTO" : "CUSTOM..."}
-                  className={`bg-transparent border-b border-white/20 text-white font-mono text-sm lg:text-xs px-2 py-1 outline-none focus:border-accent w-36 lg:w-32 text-right lg:text-left placeholder:text-white/20 transition-opacity ${isAiEnabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  maxLength={20}
-                />
-              </div>
+            {/* Custom Text Input */}
+            <div className="flex items-center justify-between lg:justify-start gap-3 px-2 lg:px-0 lg:border-l lg:border-white/10 lg:pl-3">
+              <span className="text-white/40 font-mono text-[10px] tracking-widest">TEXT</span>
+              <input
+                type="text"
+                value={customText}
+                onChange={(e) => setCustomText(e.target.value)}
+                disabled={isAiEnabled}
+                placeholder={isAiEnabled ? "AI AUTO" : "CUSTOM..."}
+                className={`bg-transparent border-b border-white/20 text-white font-mono text-sm lg:text-xs px-2 py-1 outline-none focus:border-accent w-36 lg:w-32 text-right lg:text-left placeholder:text-white/20 transition-opacity ${isAiEnabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                maxLength={20}
+              />
             </div>
+
+            {/* Albums Button */}
+            <button
+              onClick={() => {
+                if (!user) {
+                  setShowLoginPrompt(true);
+                } else {
+                  setIsAlbumDrawerOpen(true);
+                }
+              }}
+              className="w-full lg:w-auto px-4 py-3 lg:py-1 bg-accent/10 hover:bg-accent/20 text-accent hover:text-accent/90 border border-accent/20 rounded-xl lg:rounded transition-colors font-fredericka text-sm lg:text-base tracking-widest uppercase flex items-center justify-center gap-2"
+              title="My Albums"
+            >
+              <i className="fas fa-book-open text-sm" />
+              Albums
+            </button>
+
+            {/* Memory Board Button */}
+            <button
+              ref={memoriesButtonRef}
+              onClick={() => {
+                if (user) {
+                  setIsMemoryBoardOpen(true);
+                }
+              }}
+              disabled={!user}
+              className={`w-full lg:w-auto px-4 py-3 lg:py-1 border rounded-xl lg:rounded transition-colors font-fredericka text-sm lg:text-base tracking-widest uppercase flex items-center justify-center gap-2 group ${
+                user
+                  ? 'bg-amber-600/10 hover:bg-amber-600/20 text-amber-400 hover:text-amber-300 border-amber-600/20'
+                  : 'bg-amber-600/5 text-amber-400/40 border-amber-600/10 cursor-not-allowed opacity-50'
+              }`}
+              title={user ? "Memory Board - View shared memories" : "Login to view Memory Board"}
+            >
+              <i className={`fas fa-thumbtack text-sm ${user ? 'rotate-45 group-hover:rotate-0 transition-transform' : ''}`} />
+              Memories
+              {user && sharedPhotos.length > 0 && (
+                <span className="bg-amber-600/20 text-amber-300 px-2 py-0.5 rounded-full text-xs font-mono">
+                  {sharedPhotos.length}
+                </span>
+              )}
+            </button>
 
             {/* Reset Button */}
             <button

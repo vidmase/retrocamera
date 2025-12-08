@@ -36,6 +36,14 @@
             'flash-ray': 'flashRay 0.4s ease-out forwards',
             'fade-in': 'fadeIn 0.3s ease-out forwards',
             'scale-in': 'scaleIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards',
+            'float': 'float 6s ease-in-out infinite',
+            'wave': 'wave 8s linear infinite',
+            'ripple-1': 'ripple 1.5s ease-out forwards',
+            'ripple-2': 'ripple 1.5s ease-out 0.2s forwards',
+            'ripple-3': 'ripple 1.5s ease-out 0.4s forwards',
+            'caustics-1': 'caustics 4s ease-in-out infinite',
+            'caustics-2': 'caustics 6s ease-in-out infinite reverse',
+            'splash': 'splash 0.8s ease-out forwards',
           },
           keyframes: {
             develop: {
@@ -77,6 +85,29 @@
             scaleIn: {
               '0%': { transform: 'scale(0.8)', opacity: '0' },
               '100%': { transform: 'scale(1)', opacity: '1' },
+            },
+            float: {
+              '0%, 100%': { transform: 'translateY(0) rotate(var(--rotation, 0deg))' },
+              '50%': { transform: 'translateY(-15px) rotate(calc(var(--rotation, 0deg) + 3deg))' },
+            },
+            wave: {
+              '0%': { transform: 'translateX(0)' },
+              '100%': { transform: 'translateX(-200px)' },
+            },
+            ripple: {
+              '0%': { transform: 'translate(-50%, -50%) scale(1)', opacity: '1' },
+              '100%': { transform: 'translate(-50%, -50%) scale(20)', opacity: '0' },
+            },
+            caustics: {
+              '0%, 100%': { transform: 'translate(0, 0) scale(1)' },
+              '25%': { transform: 'translate(30%, 20%) scale(1.2)' },
+              '50%': { transform: 'translate(-20%, 40%) scale(0.8)' },
+              '75%': { transform: 'translate(10%, -30%) scale(1.1)' },
+            },
+            splash: {
+              '0%': { transform: 'scale(0)', opacity: '1' },
+              '50%': { transform: 'scale(1.5)', opacity: '0.8' },
+              '100%': { transform: 'scale(2)', opacity: '0' },
             }
           }
         },

@@ -6,10 +6,12 @@ interface PolaroidProps {
   onFocus: (id: string) => void;
   onDragEnd?: (id: string, x: number, y: number) => void;
   onDragStart?: () => void;
+  onShare?: (photo: Photo, position?: { x: number; y: number }) => void;
   className?: string;
+  enableHtmlDrag?: boolean;
 }
 
-const Polaroid: React.FC<PolaroidProps> = ({ photo, onFocus, onDragEnd, onDragStart, className = '' }) => {
+const Polaroid: React.FC<PolaroidProps> = ({ photo, onFocus, onDragEnd, onDragStart, onShare, className = '', enableHtmlDrag = false }) => {
   const dateStr = new Date(photo.timestamp).toLocaleString(undefined, {
     year: '2-digit',
     month: 'short',
@@ -139,9 +141,19 @@ const Polaroid: React.FC<PolaroidProps> = ({ photo, onFocus, onDragEnd, onDragSt
     positionRef.current = position;
   }, [position]);
 
+  const handleHtmlDragStart = (e: React.DragEvent) => {
+    if (!enableHtmlDrag) {
+      e.preventDefault();
+      return;
+    }
+    e.dataTransfer.setData('application/json', JSON.stringify(photo));
+    e.dataTransfer.effectAllowed = 'copy';
+  };
+
   return (
     <div
       ref={elementRef}
+      draggable={enableHtmlDrag && !photo.isEjecting && !photo.isDeveloping}
       className={`absolute w-44 sm:w-52 h-[18rem] sm:h-[21rem] select-none transition-shadow duration-300 ${className} ${isDragging ? 'z-[1000] scale-105' : ''}`}
       style={{
         left: position.x,
@@ -155,6 +167,7 @@ const Polaroid: React.FC<PolaroidProps> = ({ photo, onFocus, onDragEnd, onDragSt
       }}
       onMouseDown={handleMouseDown}
       onTouchStart={handleTouchStart}
+      onDragStart={handleHtmlDragStart}
     >
       <div
         className="relative w-full h-full transition-transform duration-700 transform-style-3d"
@@ -207,7 +220,7 @@ const Polaroid: React.FC<PolaroidProps> = ({ photo, onFocus, onDragEnd, onDragSt
           style={{ transform: 'rotateY(180deg)' }}
         >
           <div className="w-full h-full border-2 border-dashed border-gray-300 rounded-lg p-4 flex flex-col items-center gap-4 bg-[url('https://www.transparenttextures.com/patterns/cardboard.png')]">
-            <div className="text-gray-400 font-mono text-xs tracking-widest uppercase border-b border-gray-300 pb-1 w-full text-center">
+            <div className="text-gray-700 font-mono text-xs tracking-widest uppercase border-b border-gray-400 pb-1 w-full text-center font-semibold">
               Notes
             </div>
             <textarea
@@ -217,13 +230,31 @@ const Polaroid: React.FC<PolaroidProps> = ({ photo, onFocus, onDragEnd, onDragSt
                 photo.backNote = e.target.value; // Direct mutation for simplicity in this context, ideally propagate up
               }}
               placeholder="Write a memory..."
-              className="w-full h-full bg-transparent resize-none outline-none font-hand text-xl text-gray-700 leading-relaxed text-center placeholder:text-gray-300"
+              className="w-full h-full bg-transparent resize-none outline-none font-hand text-xl text-gray-800 leading-relaxed text-center placeholder:text-gray-500"
               onMouseDown={(e) => e.stopPropagation()} // Allow text interaction without dragging
               onTouchStart={(e) => e.stopPropagation()}
             />
-            <div className="text-[10px] text-gray-300 font-mono">
+            <div className="text-[10px] text-gray-600 font-mono">
               {dateStr}
             </div>
+
+            {/* Share Button */}
+            {onShare && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  // Get the button's position for liquid effect
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  onShare(photo, { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+                onTouchStart={(e) => e.stopPropagation()}
+                className="absolute bottom-2 right-2 w-8 h-8 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full flex items-center justify-center shadow-lg transition-all hover:scale-110 active:scale-95"
+                title="Share to Pool"
+              >
+                <i className="fas fa-share-alt text-sm" />
+              </button>
+            )}
           </div>
         </div>
       </div>

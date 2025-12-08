@@ -14,6 +14,19 @@ export interface Photo {
   zIndex: number;
   backNote?: string;
   mediaType?: 'photo' | 'video';
+  albumId?: string;
+  isShared?: boolean; // true if shared to memory board
+  userId?: string; // user who shared/created the photo
+}
+
+export interface Album {
+  id: string;
+  name: string;
+  coverColor: string;
+  coverPattern: 'leather' | 'fabric' | 'vintage' | 'modern';
+  createdAt: number;
+  photoCount: number;
+  coverPhotoUrl?: string;
 }
 
 export interface CameraState {
